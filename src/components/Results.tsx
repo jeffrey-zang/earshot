@@ -17,6 +17,8 @@ interface Props {
   onNewGame: () => void;
 }
 
+const signed = (n: number) => `${n > 0 ? "+" : n < 0 ? "−" : ""}${Math.abs(n).toLocaleString()}`;
+
 export function Results({ results, settings, seed, note, challengeScore, onReplay, onNewGame }: Props) {
   const total = results.reduce((a, r) => a + r.points, 0);
   const solved = results.filter((r) => r.solved);
@@ -41,54 +43,104 @@ export function Results({ results, settings, seed, note, challengeScore, onRepla
     }
   }
 
+  const verdict =
+    challengeScore == null
+      ? null
+      : total > challengeScore
+        ? `You beat ${challengeScore.toLocaleString()} by ${(total - challengeScore).toLocaleString()}`
+        : total === challengeScore
+          ? `Dead even with ${challengeScore.toLocaleString()}`
+          : `${(challengeScore - total).toLocaleString()} short of ${challengeScore.toLocaleString()}`;
+
   return (
-    <div className="mx-auto max-w-xl px-4 pb-16 pt-8">
-      <Logo className="text-lg" />
-      <div className="animate-pop mt-10 text-center">
-        <div className="text-sm font-semibold uppercase tracking-wider text-dim">Final score</div>
-        <div className="mt-2 text-6xl font-bold tracking-tight tabular">{total.toLocaleString()}</div>
-        <div className="mt-2 text-sm text-dim tabular">
-          {solved.length} of {results.length} songs · {Math.round((Math.max(0, total) / Math.max(1, best)) * 100)}% of max
-          {solved.length > 0 && ` · avg ${formatSeconds(avg)} to solve`}
-        </div>
-        {challengeScore != null && (
-          <div className={cx("mt-4 inline-block rounded-full px-4 py-1.5 text-sm font-semibold", total > challengeScore ? "bg-good/15 text-good" : total === challengeScore ? "bg-gold/15 text-gold" : "bg-bad/15 text-bad")}>
-            {total > challengeScore ? `You beat ${challengeScore.toLocaleString()}` : total === challengeScore ? "Dead even" : `${(challengeScore - total).toLocaleString()} short of ${challengeScore.toLocaleString()}`}
-          </div>
-        )}
-        {note && <p className="mt-4 text-sm text-gold">{note}</p>}
-      </div>
+    <div className="mx-auto max-w-xl px-5 pb-16 tabular">
+      <header className="flex h-14 items-center justify-between">
+        <Logo className="text-lg" />
+        <span className="text-sm text-ink-2">
+          {results.length} round{results.length === 1 ? "" : "s"}
+        </span>
+      </header>
 
-      <div className="mt-8 grid grid-cols-2 gap-2">
-        <Button variant="primary" onClick={onReplay}>Play again</Button>
-        <Button onClick={onNewGame}>Change settings</Button>
-        <Button onClick={() => copy("text")} disabled={!results.length}>{copied === "text" ? "Copied" : "Share score"}</Button>
-        <Button onClick={() => copy("link")} disabled={!results.length}>{copied === "link" ? "Copied" : "Copy challenge link"}</Button>
-      </div>
-      <p className="mt-2 text-center text-xs text-faint">A challenge link lets anyone play these exact songs, no Spotify login needed.</p>
+      <section className="animate-rise pt-5" aria-live="polite">
+        <div className="text-[15px] text-ink-2">Final score</div>
+        <div className={cx("numeral text-[120px] leading-[0.85] sm:text-[152px]", total < 0 && "text-error")}>{total < 0 ? `−${Math.abs(total).toLocaleString()}` : total.toLocaleString()}</div>
+        <p className="mt-3 text-[15px] text-ink-2">
+          <span className="font-semibold text-ink">
+            {solved.length} of {results.length}
+          </span>{" "}
+          named
+          {solved.length > 0 && ` · ${formatSeconds(avg)} average`} · {Math.round((Math.max(0, total) / Math.max(1, best)) * 100)}% of max
+        </p>
+        {verdict && <p className="mt-3 inline-block border-2 border-ink px-2.5 py-1 text-sm font-semibold">{verdict}</p>}
+        {note && <p className="mt-3 text-sm text-ink-2">{note}</p>}
+      </section>
 
-      <ol className="mt-8 space-y-2">
+      {solved.length > 0 && results.length <= 50 && <PointsChart results={results} max={settings.maxPoints} />}
+
+      <div className="mt-6 grid grid-cols-2 gap-2">
+        <Button variant="primary" className="h-[52px] text-base" onClick={onReplay}>
+          Play again
+        </Button>
+        <Button className="h-[52px] text-base" onClick={onNewGame}>
+          New game
+        </Button>
+      </div>
+      <div className="mt-1 flex justify-between gap-2">
+        <Button variant="text" onClick={() => copy("text")} disabled={!results.length}>
+          {copied === "text" ? "Copied" : "Share score"}
+        </Button>
+        <Button variant="text" onClick={() => copy("link")} disabled={!results.length}>
+          {copied === "link" ? "Copied" : "Copy challenge link"}
+        </Button>
+      </div>
+      <p className="text-sm text-ink-2">A challenge link lets anyone play these exact songs, no Spotify login needed.</p>
+
+      <ol className="mt-6 border-t-2 border-ink">
         {results.map((r, i) => (
-          <li key={i} className="flex items-center gap-3 rounded-xl bg-panel p-3 ring-1 ring-line">
-            <span className="w-5 shrink-0 text-center text-xs text-faint tabular">{i + 1}</span>
-            {r.track.image ? <img src={r.track.image} alt="" className="h-11 w-11 shrink-0 rounded-md object-cover" /> : <span className="h-11 w-11 shrink-0 rounded-md bg-line" />}
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-sm font-medium">{cleanTitle(r.track.title)}</div>
-              <div className="truncate text-xs text-dim">
+          <li key={i} className="grid grid-cols-[24px_44px_minmax(0,1fr)_auto] items-center gap-3 border-b border-rule py-2.5">
+            <span className="text-[13px] font-semibold text-ink-3 condensed">{String(i + 1).padStart(2, "0")}</span>
+            {r.track.image ? <img src={r.track.image} alt="" className="h-11 w-11 object-cover" /> : <span className="h-11 w-11 bg-paper-2" />}
+            <span className="min-w-0">
+              <span className={cx("block truncate text-[15px] font-semibold", !r.solved && "text-ink-2")}>{cleanTitle(r.track.title)}</span>
+              <span className="block truncate text-[13px] text-ink-2">
                 {r.track.artists.join(", ")}
                 {r.track.year ? ` · ${r.track.year}` : ""}
-              </div>
-            </div>
-            <div className="shrink-0 text-right">
-              <div className={cx("text-sm font-semibold tabular", r.points > 0 ? "text-fg" : r.points < 0 ? "text-bad" : "text-faint")}>
-                {r.points > 0 ? "+" : ""}
-                {r.points.toLocaleString()}
-              </div>
-              <div className={cx("text-xs tabular", r.solved ? "text-good" : "text-faint")}>{r.solved ? formatSeconds(r.listened) : "missed"}</div>
-            </div>
+              </span>
+            </span>
+            <span className="text-right">
+              <span className={cx("block text-[15px] font-bold", r.points < 0 ? "text-error" : r.points === 0 && "text-ink-2")}>{signed(r.points)}</span>
+              <span className="block text-xs text-ink-2">{r.solved ? formatSeconds(r.listened) : "missed"}</span>
+            </span>
           </li>
         ))}
       </ol>
     </div>
+  );
+}
+
+/** One bar per round: height is points, labels are how much audio it took. */
+function PointsChart({ results, max }: { results: RoundResult[]; max: number }) {
+  const dense = results.length > 15;
+  return (
+    <figure className="mt-6">
+      <div className="grid h-24 items-end gap-1 border-b-2 border-ink" style={{ gridTemplateColumns: `repeat(${results.length}, minmax(0, 1fr))` }}>
+        {results.map((r, i) => (
+          <span
+            key={i}
+            title={`Round ${i + 1}: ${signed(r.points)}`}
+            className={r.points > 0 ? "bg-ink" : "bg-tick"}
+            style={{ height: r.points > 0 ? `${Math.max(4, (r.points / max) * 100)}%` : "2px" }}
+          />
+        ))}
+      </div>
+      {!dense && (
+        <div className="mt-1 grid gap-1 text-center text-[11px] font-semibold text-ink-3 condensed" style={{ gridTemplateColumns: `repeat(${results.length}, minmax(0, 1fr))` }} aria-hidden>
+          {results.map((r, i) => (
+            <span key={i}>{r.solved ? formatSeconds(r.listened).replace(/s$/, "") : "—"}</span>
+          ))}
+        </div>
+      )}
+      <figcaption className="sr-only">Points per round</figcaption>
+    </figure>
   );
 }

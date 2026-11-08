@@ -37,12 +37,12 @@ export function ConnectButton({ playback = false, label }: { playback?: boolean;
     <div>
       <Button
         variant="primary"
-        className="bg-[#1ed760] text-black"
+        className="bg-[#1ed760] text-black hover:bg-[#1fdf64]"
         onClick={() => beginLogin({ playback, returnTo: window.location.pathname }).catch((e: Error) => setErr(e.message))}
       >
         <SpotifyLogo /> {label ?? "Connect Spotify"}
       </Button>
-      {err && <p className="mt-2 text-sm text-bad">{err}</p>}
+      {err && <p className="mt-2 text-sm text-error">{err}</p>}
     </div>
   );
 }
@@ -55,20 +55,20 @@ export function ClientIdSettings() {
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   return (
     <div className="mt-4 text-sm">
-      <button type="button" className="text-dim underline decoration-line underline-offset-4 hover:text-fg" onClick={() => setOpen(!open)}>
+      <button type="button" aria-expanded={open} className="min-h-10 font-semibold text-ink underline decoration-rule-strong underline-offset-4 hover:decoration-ink" onClick={() => setOpen(!open)}>
         {open ? "Hide" : "Use your own Spotify app"}
       </button>
       {open && (
-        <div className="mt-3 space-y-3 rounded-xl bg-panel2 p-4 ring-1 ring-line">
-          <p className="text-dim">
+        <div className="mt-2 space-y-3 bg-paper-2 p-4">
+          <p className="text-ink-2">
             Spotify limits each developer app to 5 users. To skip that limit, create your own free app at developer.spotify.com/dashboard (Web API + Web Playback SDK), add{" "}
-            <code className="rounded bg-ink px-1.5 py-0.5 text-fg">{origin}/callback</code> as a Redirect URI, and paste its Client ID here. It is stored only in this browser.
+            <code className="bg-field px-1.5 py-0.5 text-ink">{origin}/callback</code> as a Redirect URI, and paste its Client ID here. It is stored only in this browser.
           </p>
           <div className="flex gap-2">
             <TextField value={value} onChange={(e) => { setValue(e.target.value); setSaved(false); }} placeholder={getClientId() ? "Using the site's app" : "Client ID"} />
             <Button onClick={() => { setCustomClientId(value); logout(); setSaved(true); }}>Save</Button>
           </div>
-          {saved && <p className="text-good">Saved. Connect again to sign in with this app.</p>}
+          {saved && <p className="text-ink">Saved. Connect again to sign in with this app.</p>}
         </div>
       )}
     </div>

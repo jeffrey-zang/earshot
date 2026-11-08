@@ -1,26 +1,31 @@
 @import "tailwindcss";
 
+/*
+  Earshot: a cue sheet. Paper and ink, one family (Archivo) whose condensed
+  width carries every number, and cobalt used only while audio is playing.
+*/
 @theme {
-  --color-ink: #0b0c0f;
-  --color-panel: #14161b;
-  --color-panel2: #1b1e25;
-  --color-line: #272b35;
-  --color-fg: #eceef3;
-  --color-dim: #9197a6;
-  --color-faint: #5d6372;
-  --color-accent: #ff7a59;
-  --color-accent2: #ffb199;
-  --color-good: #3ddc97;
-  --color-bad: #ff5470;
-  --color-gold: #ffc857;
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --color-paper: #f1efea;
+  --color-paper-2: #e8e5de;
+  --color-field: #fbfaf7;
+  --color-ink: #121212;
+  --color-ink-2: #55524b;
+  --color-ink-3: #6e6a62;
+  --color-rule: #d6d2c8;
+  --color-rule-strong: #b9b4a9;
+  --color-tick: #8f8a80;
+  --color-signal: #2b44ff;
+  --color-error: #b42318;
+
+  --font-sans: var(--font-archivo), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 html,
 body {
-  background: var(--color-ink);
-  color: var(--color-fg);
+  background: var(--color-paper);
+  color: var(--color-ink);
 }
 
 body {
@@ -29,7 +34,12 @@ body {
 }
 
 ::selection {
-  background: color-mix(in srgb, var(--color-accent) 40%, transparent);
+  background: color-mix(in srgb, var(--color-signal) 22%, transparent);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-signal);
+  outline-offset: 2px;
 }
 
 input[type="number"]::-webkit-inner-spin-button,
@@ -45,19 +55,39 @@ input[type="number"] {
   font-variant-numeric: tabular-nums;
 }
 
-@keyframes pop {
-  0% { transform: scale(0.96); opacity: 0; }
-  100% { transform: scale(1); opacity: 1; }
+/* Condensed numerals: timecodes, scores, cue numbers. */
+.numeral {
+  font-stretch: 62%;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
 }
-.animate-pop {
-  animation: pop 180ms ease-out;
+.condensed {
+  font-stretch: 75%;
 }
 
-@keyframes shake {
-  0%, 100% { transform: translateX(0); }
-  25% { transform: translateX(-6px); }
-  75% { transform: translateX(6px); }
-}
-.animate-shake {
-  animation: shake 220ms ease-in-out;
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes rise {
+    from { transform: translateY(6px); opacity: 0; }
+    to { transform: none; opacity: 1; }
+  }
+  .animate-rise {
+    animation: rise 320ms var(--ease-out);
+  }
+
+  @keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-5px); }
+    75% { transform: translateX(5px); }
+  }
+  .animate-shake {
+    animation: shake 200ms ease-in-out;
+  }
+
+  @keyframes blink {
+    50% { opacity: 0; }
+  }
+  .animate-blink {
+    animation: blink 1s steps(1) infinite;
+  }
 }

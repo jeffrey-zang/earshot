@@ -104,8 +104,8 @@ export function Play() {
     const c = phase.challenge;
     if (!c && !phase.notes.length) return null;
     return (
-      <div className="mt-3 space-y-1 rounded-xl bg-panel p-3 text-xs text-dim ring-1 ring-line">
-        {c && <p className="text-sm text-fg">Challenge{c.score != null ? `: beat ${c.score.toLocaleString()} points` : ""}</p>}
+      <div className="mt-3 space-y-1 border-b border-rule pb-3 text-sm text-ink-2">
+        {c && <p className="font-semibold text-ink">Challenge{c.score != null ? `: beat ${c.score.toLocaleString()} points` : ""}</p>}
         {phase.notes.map((n, i) => (
           <p key={i}>{n}</p>
         ))}
@@ -115,13 +115,27 @@ export function Play() {
 
   if (phase.kind === "loading") {
     return (
-      <div className="flex min-h-dvh flex-col items-center justify-center gap-6 px-4">
-        <Logo className="text-xl" />
-        <Spinner className="h-6 w-6 text-accent" />
-        <div className="h-20 text-center text-sm text-dim">
-          {phase.messages.slice(-3).map((m, i) => (
-            <div key={i}>{m}</div>
-          ))}
+      <div className="mx-auto flex min-h-dvh max-w-xl flex-col px-5">
+        <header className="flex h-14 items-center">
+          <Logo className="text-lg" />
+        </header>
+        <div className="flex flex-1 flex-col justify-center pb-24">
+          <div className="numeral text-[96px] leading-[0.85] text-ink-3" aria-hidden>
+            0.0<span className="tracking-normal text-[40px]">s</span>
+          </div>
+          <ul className="mt-6 min-h-24 space-y-1 text-[15px] text-ink-2" aria-live="polite">
+            {phase.messages.slice(-3).map((m, i, arr) => (
+              <li key={i} className={i === arr.length - 1 ? "text-ink" : undefined}>
+                {m}
+                {i === arr.length - 1 && <Spinner className="ml-1" />}
+              </li>
+            ))}
+            {phase.messages.length === 0 && (
+              <li className="text-ink">
+                Getting songs ready <Spinner className="ml-1" />
+              </li>
+            )}
+          </ul>
         </div>
       </div>
     );
@@ -129,14 +143,19 @@ export function Play() {
 
   if (phase.kind === "error") {
     return (
-      <div className="mx-auto flex min-h-dvh max-w-md flex-col items-center justify-center gap-6 px-4 text-center">
-        <Logo className="text-xl" />
-        <p className="whitespace-pre-line text-bad">{phase.message}</p>
-        <div className="flex gap-2">
-          <Button onClick={() => router.push("/")}>Change settings</Button>
-          <Button variant="primary" onClick={() => { setPhase({ kind: "loading", messages: [] }); setAttempt((a) => a + 1); }}>
-            Try again
-          </Button>
+      <div className="mx-auto flex min-h-dvh max-w-xl flex-col px-5">
+        <header className="flex h-14 items-center">
+          <Logo className="text-lg" />
+        </header>
+        <div className="flex flex-1 flex-col justify-center pb-24">
+          <h1 className="text-3xl font-bold tracking-tight">That didn&apos;t load.</h1>
+          <p className="mt-3 whitespace-pre-line text-ink-2">{phase.message}</p>
+          <div className="mt-6 flex gap-2">
+            <Button variant="primary" onClick={() => { setPhase({ kind: "loading", messages: [] }); setAttempt((a) => a + 1); }}>
+              Try again
+            </Button>
+            <Button onClick={() => router.push("/")}>Change settings</Button>
+          </div>
         </div>
       </div>
     );
