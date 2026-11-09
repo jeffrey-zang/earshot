@@ -13,6 +13,7 @@ import { AlbumInput, ArtistInput, GuessInput, type GuessValue } from "./GuessInp
 import { ChoiceInput, CountInput, MonthInput, YearInput } from "./AnswerInputs";
 import { SnippetBar } from "./SnippetBar";
 import { Button, Kbd, Spinner, cx } from "./ui";
+import { ShortcutHelp, useShortcuts, type Shortcut } from "./Shortcuts";
 
 export interface TrackSource {
   all: Track[];
@@ -348,21 +349,22 @@ export function Game({ source, player, settings, totalRounds, seed, playlistOpti
     startRound(round.index + 1, results);
   }
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT") return;
-      if (e.key === " ") {
-        e.preventDefault();
-        if (round?.status === "guessing") toggle();
-      } else if (e.key === "Enter" && round && round.status !== "guessing") {
-        e.preventDefault();
-        nextRound();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  });
+  const guessing = !!round && !loading && round.status === "guessing";
+  const roundDone = !!round && !loading && round.status !== "guessing";
+  const playlistOpen = guessing && round!.fields.some((f) => f.field === "playlist" && f.status === "open");
+  const focusAnswer = () => document.querySelector<HTMLElement>("[data-answers] input:not([disabled]), [data-answers] select")?.focus();
+  const shortcuts: Shortcut[] = [
+    { keys: [" "], display: "Space", label: "Play or stop the snippet", run: toggle, enabled: guessing },
+    { keys: [" "], display: "Space", label: `Hear ${formatSeconds(steps[last])} of the song`, run: () => (playing ? stop() : play(steps[last])), enabled: roundDone },
+    { keys: ["s"], display: "S / Shift Enter", label: "Skip to the next length", run: skip, enabled: guessing },
+    { keys: ["Enter"], shift: true, typing: true, display: "Shift Enter", label: "Skip", run: skip, enabled: guessing, hidden: true },
+    { keys: ["g"], display: "G", label: "Give up this round", run: giveUp, enabled: guessing },
+    { keys: ["/"], display: "/", label: "Jump to the answer box", run: focusAnswer, enabled: guessing },
+    { keys: ["Escape"], typing: true, display: "Esc", label: "Leave the answer box", run: () => (document.activeElement as HTMLElement | null)?.blur(), enabled: guessing },
+    { keys: ["1", "2", "3", "4", "5", "6", "7", "8", "9"], display: "1 – 9", label: "Pick a playlist", run: (k) => playlistOptions[+k - 1] && submitChoice(playlistOptions[+k - 1]), enabled: playlistOpen },
+    { keys: ["Enter"], display: "Enter", label: round && round.index + 1 >= totalRounds ? "See results" : "Next song", run: nextRound, enabled: roundDone },
+  ];
+  const { help, setHelp } = useShortcuts(shortcuts);
 
   const penalties = round ? round.fields.reduce((a, f) => a + f.penalty, 0) : 0;
   const openCount = round ? round.fields.filter((f) => f.status === "open").length : 0;
@@ -375,6 +377,7 @@ export function Game({ source, player, settings, totalRounds, seed, playlistOpti
   return (
     <div className="mx-auto flex min-h-dvh max-w-xl flex-col px-5 pb-5 tabular">
       <GameHeader onQuit={onQuit} roundNo={roundNo} totalRounds={totalRounds} score={score} done={results.length} current={round?.status === "guessing"} playing={playing} />
+      <ShortcutHelp open={help} onClose={() => setHelp(false)} shortcuts={shortcuts} />
       {banner}
 
       {loading || !round ? (
@@ -439,21 +442,28 @@ export function Game({ source, player, settings, totalRounds, seed, playlistOpti
             <>
               {round.guesses.length > 0 && <GuessLog guesses={round.guesses} penalty={settings.wrongPenalty} />}
               <div className="min-h-6 flex-1" />
-              <GuessInput pool={source.all} scope={settings.answerScope} onGuess={(g: GuessValue) => submitText("title", g.title, g.artist)} onEmptySpace={toggle} shake={shake} />
+              <div data-answers>
+                <GuessInput pool={source.all} scope={settings.answerScope} onGuess={(g: GuessValue) => submitText("title", g.title, g.artist)} onEmptySpace={toggle} shake={shake} />
+              </div>
             </>
           )}
 
           <div className="mt-1 flex items-center justify-between">
-            <button type="button" onClick={skip} className="h-11 text-[15px] font-semibold hover:text-ink-2">
-              {round.step < last ? `Skip to ${formatSeconds(steps[round.step + 1])}` : "Give up"}
+            <button type="button" onClick={skip} className="inline-flex h-11 items-center gap-2 text-[15px] font-semibold hover:text-ink-2">
+              {round.step < last ? `Skip to ${formatSeconds(steps[round.step + 1])}` : "Give up"} <Kbd>S</Kbd>
             </button>
             {round.step < last && (
-              <button type="button" onClick={giveUp} className="h-11 text-[15px] text-ink-2 hover:text-ink">
-                Give up
+              <button type="button" onClick={giveUp} className="inline-flex h-11 items-center gap-2 text-[15px] text-ink-2 hover:text-ink">
+                Give up <Kbd>G</Kbd>
               </button>
             )}
           </div>
-          <p className="hidden text-center text-[13px] text-ink-3 sm:block">Space plays the snippet, also from an empty answer box. Enter picks the highlighted suggestion.</p>
+          <p className="hidden text-center text-[13px] text-ink-3 sm:block">
+            Space plays · Shift+Enter skips while typing · / jumps to the answer ·{" "}
+            <button type="button" onClick={() => setHelp(true)} className="underline decoration-rule-strong underline-offset-2 hover:text-ink">
+              ? all shortcuts
+            </button>
+          </p>
         </div>
       ) : (
         <Reveal round={round} settings={settings} multi={multi} onPlay={() => (playing ? stop() : play(steps[last]))} playing={playing} onNext={nextRound} isLast={round.index + 1 >= totalRounds} />
@@ -487,7 +497,7 @@ function AnswerSheet({
 }) {
   const asksArtist = round.fields.some((f) => f.field === "artist");
   return (
-    <div className="mt-6 border-t-2 border-ink">
+    <div className="mt-6 border-t-2 border-ink" data-answers>
       {round.fields.map((f) => {
         const info = FIELD_INFO[f.field];
         return (
@@ -576,7 +586,8 @@ function Reveal({ round, settings, multi, onPlay, playing, onNext, isLast }: { r
   const won = multi ? round.points > 0 : title.status === "right";
   const wrong = round.guesses.filter((g) => !g.correct && !g.skipped).length;
   const nextRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => nextRef.current?.focus(), []);
+  // Enter and Space are handled as shortcuts, so just make sure focus isn't left on a removed input.
+  useEffect(() => (document.activeElement as HTMLElement | null)?.blur(), []);
   const solvedAt = settings.steps[round.step];
   const full = settings.steps[settings.steps.length - 1];
   const rightCount = round.fields.filter((f) => f.status === "right").length;
@@ -639,6 +650,7 @@ function Reveal({ round, settings, multi, onPlay, playing, onNext, isLast }: { r
       <Button onClick={onPlay} className="h-[52px] text-base">
         {playing ? <StopGlyph /> : <PlayGlyph />}
         {playing ? "Stop" : `Hear ${formatSeconds(full)}`}
+        <Kbd>Space</Kbd>
       </Button>
       <button ref={nextRef} type="button" onClick={onNext} className="mt-2 flex h-14 items-center justify-between bg-ink px-5 text-[17px] font-bold text-paper hover:bg-black">
         {isLast ? "See results" : "Next song"}

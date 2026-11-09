@@ -9,6 +9,7 @@ import { HL_INFO, formatCount, formatMonth } from "@/lib/modes";
 import { cleanTitle } from "@/lib/text";
 import { GameHeader, PlayGlyph, StopGlyph, usePlayback, type TrackSource } from "./Game";
 import { Kbd, Spinner, cx } from "./ui";
+import { ShortcutHelp, useShortcuts, type Shortcut } from "./Shortcuts";
 
 const POINTS = 100;
 
@@ -120,19 +121,15 @@ export function HigherLowerGame({ source, player, settings, totalRounds, seed, b
     nextRef.current = fetchPlayable();
   }
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (loading) return;
-      if (!revealed && (e.key === "ArrowUp" || e.key === "ArrowRight")) choose("higher");
-      else if (!revealed && (e.key === "ArrowDown" || e.key === "ArrowLeft")) choose("lower");
-      else if (revealed && e.key === "Enter") {
-        e.preventDefault();
-        next();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  });
+  const ready = !loading && !!a && !!b;
+  const shortcuts: Shortcut[] = [
+    { keys: ["ArrowRight", "ArrowUp"], display: "→ / ↑", label: info.higher, run: () => choose("higher"), enabled: ready && !revealed },
+    { keys: ["ArrowLeft", "ArrowDown"], display: "← / ↓", label: info.lower, run: () => choose("lower"), enabled: ready && !revealed },
+    { keys: [" ", "b"], display: "Space / B", label: "Hear the new song", run: () => b && hear(b), enabled: ready },
+    { keys: ["a"], display: "A", label: "Hear the first song", run: () => a && hear(a), enabled: ready },
+    { keys: ["Enter"], display: "Enter", label: "Next song", run: next, enabled: ready && !!revealed },
+  ];
+  const { help, setHelp } = useShortcuts(shortcuts);
 
   const streak = (() => {
     let n = 0;
@@ -143,6 +140,7 @@ export function HigherLowerGame({ source, player, settings, totalRounds, seed, b
   return (
     <div className="mx-auto flex min-h-dvh max-w-xl flex-col px-5 pb-5 tabular">
       <GameHeader onQuit={onQuit} roundNo={results.length + (revealed ? 0 : 1)} totalRounds={totalRounds} score={score} done={results.length} current={!revealed} playing={playing} label="Pick" endless={settings.rounds === 0} />
+      <ShortcutHelp open={help} onClose={() => setHelp(false)} shortcuts={shortcuts} />
       {banner}
       {loading || !a || !b ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 text-ink-2">
@@ -179,6 +177,12 @@ export function HigherLowerGame({ source, player, settings, totalRounds, seed, b
           />
 
           <div className="min-h-6 flex-1" />
+          <p className="mb-2 hidden text-center text-[13px] text-ink-3 sm:block">
+            Arrows choose · Space or B hears the new song, A the first ·{" "}
+            <button type="button" onClick={() => setHelp(true)} className="underline decoration-rule-strong underline-offset-2 hover:text-ink">
+              ? all shortcuts
+            </button>
+          </p>
           {!revealed ? (
             <div className="grid grid-cols-2 gap-2">
               <button type="button" onClick={() => choose("lower")} className="flex h-16 items-center justify-center gap-2 border-2 border-ink text-[17px] font-bold hover:bg-paper-2">
@@ -193,7 +197,7 @@ export function HigherLowerGame({ source, player, settings, totalRounds, seed, b
               <p className={cx("mb-2 text-[17px] font-semibold", !revealed.correct && "text-error")}>
                 {revealed.correct ? "Right." : lives > 0 ? `Wrong. ${lives} ${lives === 1 ? "life" : "lives"} left.` : "Wrong. That's the end of the run."}
               </p>
-              <button type="button" onClick={next} autoFocus className="flex h-14 items-center justify-between bg-ink px-5 text-[17px] font-bold text-paper hover:bg-black">
+              <button type="button" onClick={next} className="flex h-14 items-center justify-between bg-ink px-5 text-[17px] font-bold text-paper hover:bg-black">
                 {lives <= 0 || results.length >= totalRounds ? "See results" : "Next song"}
                 <Kbd>Enter</Kbd>
               </button>

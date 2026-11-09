@@ -130,9 +130,10 @@ export function MonthInput({ minYear, onSubmit }: { minYear: number; onSubmit: (
 export function ChoiceInput({ options, onPick }: { options: string[]; onPick: (o: string) => void }) {
   return (
     <div className="grid gap-1.5 sm:grid-cols-2">
-      {options.map((o) => (
-        <button key={o} type="button" onClick={() => onPick(o)} className="min-h-12 truncate border-2 border-ink bg-field px-3.5 text-left text-[15px] font-semibold hover:bg-ink hover:text-paper">
-          {o}
+      {options.map((o, i) => (
+        <button key={o} type="button" onClick={() => onPick(o)} className="flex min-h-12 items-center gap-2.5 border-2 border-ink bg-field px-3.5 text-left text-[15px] font-semibold hover:bg-ink hover:text-paper">
+          {i < 9 && <span className="hidden text-[13px] font-medium opacity-60 sm:inline">{i + 1}</span>}
+          <span className="truncate">{o}</span>
         </button>
       ))}
     </div>

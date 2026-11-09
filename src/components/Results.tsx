@@ -6,7 +6,8 @@ import { formatSeconds } from "@/lib/scoring";
 import { cleanTitle } from "@/lib/text";
 import { canShare, encodeChallenge, makeChallenge } from "@/lib/challenge";
 import { FIELD_INFO, HL_INFO, describeMode, formatCount, formatMonth } from "@/lib/modes";
-import { Button, Logo, cx } from "./ui";
+import { Button, Kbd, Logo, cx } from "./ui";
+import { ShortcutHelp, useShortcuts, type Shortcut } from "./Shortcuts";
 
 interface Props {
   results: RoundResult[];
@@ -50,6 +51,14 @@ export function Results({ results, settings, seed, note, challengeScore, onRepla
     }
   }
 
+  const shortcuts: Shortcut[] = [
+    { keys: ["Enter", "r"], display: "Enter / R", label: "Play again", run: onReplay },
+    { keys: ["n"], display: "N", label: "New game", run: onNewGame },
+    { keys: ["s"], display: "S", label: "Copy your score to share", run: () => copy("text"), enabled: results.length > 0 },
+    { keys: ["c"], display: "C", label: "Copy the challenge link", run: () => copy("link"), enabled: shareable && results.length > 0 },
+  ];
+  const { help, setHelp } = useShortcuts(shortcuts);
+
   const verdict =
     challengeScore == null
       ? null
@@ -61,6 +70,7 @@ export function Results({ results, settings, seed, note, challengeScore, onRepla
 
   return (
     <div className="mx-auto max-w-xl px-5 pb-16 tabular">
+      <ShortcutHelp open={help} onClose={() => setHelp(false)} shortcuts={shortcuts} />
       <header className="flex h-14 items-center justify-between">
         <Logo className="text-lg" />
         <span className="text-sm text-ink-2">
@@ -97,19 +107,19 @@ export function Results({ results, settings, seed, note, challengeScore, onRepla
 
       <div className="mt-6 grid grid-cols-2 gap-2">
         <Button variant="primary" className="h-[52px] text-base" onClick={onReplay}>
-          Play again
+          Play again <Kbd>Enter</Kbd>
         </Button>
         <Button className="h-[52px] text-base" onClick={onNewGame}>
-          New game
+          New game <Kbd>N</Kbd>
         </Button>
       </div>
       <div className="mt-1 flex justify-between gap-2">
         <Button variant="text" onClick={() => copy("text")} disabled={!results.length}>
-          {copied === "text" ? "Copied" : "Share score"}
+          {copied === "text" ? "Copied" : "Share score"} <Kbd>S</Kbd>
         </Button>
         {shareable && (
           <Button variant="text" onClick={() => copy("link")} disabled={!results.length}>
-            {copied === "link" ? "Copied" : "Copy challenge link"}
+            {copied === "link" ? "Copied" : "Copy challenge link"} <Kbd>C</Kbd>
           </Button>
         )}
       </div>

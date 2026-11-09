@@ -7,10 +7,11 @@ import { DEFAULT_FILTERS, STEP_PRESETS, loadConfig, saveConfig, setPendingGame }
 import { describeSource, needsSpotifyLogin, playlistName } from "@/lib/sources";
 import { describeMode } from "@/lib/modes";
 import { ModePanel } from "./ModePanel";
+import { ShortcutHelp, useShortcuts, type Shortcut } from "./Shortcuts";
 import { beginLogin, getClientId, isConnected } from "@/lib/spotify/auth";
 import { GENRES } from "@/lib/genres";
 import { pointsFor, formatSeconds } from "@/lib/scoring";
-import { Button, Logo, Section, Spinner, cx } from "./ui";
+import { Button, Kbd, Logo, Section, Spinner, cx } from "./ui";
 import { SourcesPanel } from "./SourcesPanel";
 import { FiltersPanel, GamePanel, ScoringPanel } from "./SettingsPanels";
 import { SpotifyLogo } from "./SpotifyConnect";
@@ -112,6 +113,30 @@ export function Setup() {
     if (config) saveConfig(config);
   }, [config]);
 
+  const launch = (c: GameConfig) => {
+    setStarting(true);
+    setPendingGame(c);
+    router.push("/play");
+  };
+  const quickPresets = PRESETS.filter((p) => !p.spotify || connected || canConnect);
+  const customReady = !!config && config.sources.length > 0 && !(!connected && config.sources.some(needsSpotifyLogin));
+  const shortcuts: Shortcut[] = [
+    {
+      keys: ["1", "2", "3", "4", "5", "6", "7", "8", "9"],
+      display: "1 – 9",
+      label: "Start that quick-play game",
+      run: (k) => {
+        const p = quickPresets[+k - 1];
+        if (!p || !config) return;
+        if (p.spotify && !connected) beginLogin({ returnTo: "/" });
+        else launch(p.apply(config));
+      },
+      enabled: !!config && !starting,
+    },
+    { keys: ["Enter"], display: "Enter", label: "Start your custom game", run: () => config && launch(config), enabled: customReady && !starting },
+  ];
+  const { help, setHelp } = useShortcuts(shortcuts);
+
   if (!config) {
     return (
       <div className="flex min-h-dvh items-center justify-center text-ink-2">
@@ -120,11 +145,7 @@ export function Setup() {
     );
   }
 
-  const start = (c: GameConfig) => {
-    setStarting(true);
-    setPendingGame(c);
-    router.push("/play");
-  };
+  const start = launch;
   const connect = () => beginLogin({ returnTo: "/" });
 
   const missingLogin = !connected && config.sources.some(needsSpotifyLogin);
@@ -135,6 +156,7 @@ export function Setup() {
 
   return (
     <div className="min-h-dvh">
+      <ShortcutHelp open={help} onClose={() => setHelp(false)} shortcuts={shortcuts} />
       <header className="mx-auto flex max-w-[1120px] items-center justify-between gap-4 border-b border-rule px-5 py-5 sm:px-10">
         <Logo />
         {connected ? (
@@ -168,7 +190,7 @@ export function Setup() {
           </p>
         </section>
 
-        <Section title="Play now" subtitle="Pick one and go. Nothing to set up.">
+        <Section title="Play now" subtitle="Pick one and go, or press its number. Nothing to set up.">
           <ol>
             {presets.map((p, i) => {
               const locked = p.spotify && !connected;
@@ -275,6 +297,7 @@ export function Setup() {
           </p>
           <Button variant="primary" className={cx("h-[52px] shrink-0 px-7 text-[17px]")} disabled={!canStart || starting} onClick={() => start(config)}>
             {starting ? <Spinner /> : "Start game"}
+            {!starting && <Kbd>Enter</Kbd>}
           </Button>
         </div>
       </div>

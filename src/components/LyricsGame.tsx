@@ -9,6 +9,7 @@ import { cleanTitle } from "@/lib/text";
 import { lineShape, lineSimilarity, lyricWords, markWords, pickLine } from "@/lib/lyrics";
 import { GameHeader, PlayGlyph, StopGlyph, TrackCard, usePlayback, type TrackSource } from "./Game";
 import { Button, Kbd, Spinner, cx } from "./ui";
+import { ShortcutHelp, useShortcuts, type Shortcut } from "./Shortcuts";
 
 type Hint = "prev" | "first" | "shape";
 const HINT_LABEL: Record<Hint, string> = { prev: "Show the line before", first: "First word", shape: "Word lengths" };
@@ -131,28 +132,25 @@ export function LyricsGame({ source, player, settings, totalRounds, seed, banner
     startRound(round.index + 1, results);
   }
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") return;
-      if (e.key === " " && round && !done) {
-        e.preventDefault();
-        playing ? stop() : play(round.clip);
-      } else if (e.key === "Enter" && done) {
-        e.preventDefault();
-        next();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  });
+  const available: Hint[] = round ? ((round.aligned ? ["prev", "first", "shape"] : ["first", "shape"]) as Hint[]).filter((h) => !round.hints.includes(h)) : [];
+  const guessing = !!round && !loading && !done;
+  const shortcuts: Shortcut[] = [
+    { keys: [" "], display: "Space", label: round?.aligned ? "Play the seconds before the line" : "Play the song", run: () => round && (playing ? stop() : play(round.clip)), enabled: guessing },
+    { keys: [" "], display: "Space", label: "Hear it", run: () => round && (playing ? stop() : play(round.aligned ? round.clip + 6 : 15)), enabled: !!round && done },
+    { keys: ["h"], display: "H", label: "Take the next hint", run: () => round && available.length && setRound({ ...round, hints: [...round.hints, available[0]] }), enabled: guessing },
+    { keys: ["/"], display: "/", label: "Jump to the answer box", run: () => document.getElementById("lyric-guess")?.focus(), enabled: guessing },
+    { keys: ["Escape"], typing: true, display: "Esc", label: "Leave the answer box", run: () => (document.activeElement as HTMLElement | null)?.blur(), enabled: guessing },
+    { keys: ["g"], display: "G", label: "Give up this line", run: () => submit(""), enabled: guessing },
+    { keys: ["Enter"], display: "Enter", label: round && round.index + 1 >= totalRounds ? "See results" : "Next line", run: next, enabled: !!round && done },
+  ];
+  const { help, setHelp } = useShortcuts(shortcuts);
 
   const words = lyricWords(answer);
-  const available: Hint[] = round ? ((round.aligned ? ["prev", "first", "shape"] : ["first", "shape"]) as Hint[]).filter((h) => !round.hints.includes(h)) : [];
 
   return (
     <div className="mx-auto flex min-h-dvh max-w-xl flex-col px-5 pb-5 tabular">
       <GameHeader onQuit={onQuit} roundNo={Math.min((round?.index ?? 0) + 1, totalRounds)} totalRounds={totalRounds} score={score} done={results.length} current={!!round && !done} playing={playing} label="Line" />
+      <ShortcutHelp open={help} onClose={() => setHelp(false)} shortcuts={shortcuts} />
       {banner}
       {loading || !round ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 text-ink-2">
@@ -209,6 +207,7 @@ export function LyricsGame({ source, player, settings, totalRounds, seed, banner
               {available.map((h) => (
                 <Button key={h} variant="text" onClick={() => setRound({ ...round, hints: [...round.hints, h] })} className="text-sm">
                   {HINT_LABEL[h]} <span className="text-ink-3">−30%</span>
+                  {h === available[0] && <Kbd>H</Kbd>}
                 </Button>
               ))}
             </div>
@@ -247,9 +246,12 @@ export function LyricsGame({ source, player, settings, totalRounds, seed, banner
               Submit
             </button>
           </form>
-          <div className="mt-1 flex justify-end">
-            <button type="button" onClick={() => submit("")} className="h-11 text-[15px] text-ink-2 hover:text-ink">
-              Give up
+          <div className="mt-1 flex items-center justify-between">
+            <button type="button" onClick={() => setHelp(true)} className="hidden h-11 text-[13px] text-ink-3 underline decoration-rule-strong underline-offset-2 hover:text-ink sm:block">
+              ? all shortcuts
+            </button>
+            <button type="button" onClick={() => submit("")} className="ml-auto inline-flex h-11 items-center gap-2 text-[15px] text-ink-2 hover:text-ink">
+              Give up <Kbd>G</Kbd>
             </button>
           </div>
         </div>
@@ -262,7 +264,7 @@ export function LyricsGame({ source, player, settings, totalRounds, seed, banner
 
 function LyricReveal({ round, prev, answer, playing, onPlay, onNext, isLast }: { round: RoundState; prev: string; answer: string; playing: boolean; onPlay: () => void; onNext: () => void; isLast: boolean }) {
   const nextRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => nextRef.current?.focus(), []);
+  useEffect(() => (document.activeElement as HTMLElement | null)?.blur(), []);
   const sim = round.similarity ?? 0;
   const marked = markWords(round.guess ?? "", answer);
   return (
@@ -292,6 +294,7 @@ function LyricReveal({ round, prev, answer, playing, onPlay, onNext, isLast }: {
       <Button onClick={onPlay} className="h-[52px] text-base">
         {playing ? <StopGlyph /> : <PlayGlyph />}
         {playing ? "Stop" : round.aligned ? "Hear it" : "Hear the song"}
+        <Kbd>Space</Kbd>
       </Button>
       <button ref={nextRef} type="button" onClick={onNext} className="mt-2 flex h-14 items-center justify-between bg-ink px-5 text-[17px] font-bold text-paper hover:bg-black">
         {isLast ? "See results" : "Next line"}
