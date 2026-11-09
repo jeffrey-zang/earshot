@@ -1,4 +1,7 @@
-import type { StartMode } from "./types";
+import type { StartMode, Twist } from "./types";
+
+export type ActiveTwist = Exclude<Twist, "random">;
+const RATE: Record<ActiveTwist, number> = { none: 1, reverse: 1, fast: 1.5, slow: 0.7, muffled: 1 };
 
 /**
  * Sample-accurate snippet playback for 30-second previews using the Web Audio API.
@@ -10,6 +13,23 @@ export class PreviewEngine {
   private source: AudioBufferSourceNode | null = null;
   buffer: AudioBuffer | null = null;
   private volume = 0.8;
+  private reversed = new WeakMap<AudioBuffer, AudioBuffer>();
+  /** Playback speed of the current snippet, so progress can be reported in song time. */
+  rate = 1;
+
+  private reverse(buf: AudioBuffer): AudioBuffer {
+    let r = this.reversed.get(buf);
+    if (!r) {
+      r = this.context().createBuffer(buf.numberOfChannels, buf.length, buf.sampleRate);
+      for (let c = 0; c < buf.numberOfChannels; c++) {
+        const src = buf.getChannelData(c);
+        const dst = r.getChannelData(c);
+        for (let i = 0, n = src.length; i < n; i++) dst[i] = src[n - 1 - i];
+      }
+      this.reversed.set(buf, r);
+    }
+    return r;
+  }
 
   private context(): AudioContext {
     if (!this.ctx) {
@@ -74,29 +94,53 @@ export class PreviewEngine {
     return start + (latest - start) * rand();
   }
 
-  /** Play `length` seconds from `offset`. Returns the AudioContext time playback began. */
-  async play(offset: number, length: number, onEnded: () => void): Promise<number> {
+  /**
+   * Play `length` seconds of the song from `offset`, with an optional twist. Returns the
+   * AudioContext time playback began. Lengths are in song time: a sped-up 1s snippet still
+   * contains exactly 1s of the song.
+   */
+  async play(offset: number, length: number, onEnded: () => void, twist: ActiveTwist = "none"): Promise<number> {
     const ctx = this.context();
     if (ctx.state !== "running") await ctx.resume();
     this.stop();
     if (!this.buffer || !this.gain) throw new Error("nothing loaded");
-    const src = ctx.createBufferSource();
-    src.buffer = this.buffer;
-    const env = ctx.createGain();
-    src.connect(env).connect(this.gain);
-    const t0 = ctx.currentTime + 0.02;
     const len = Math.max(0.01, Math.min(length, this.buffer.duration - offset));
-    const fade = Math.min(0.004, len / 4);
+    const rate = RATE[twist];
+    this.rate = rate;
+    const src = ctx.createBufferSource();
+    let start = offset;
+    if (twist === "reverse") {
+      src.buffer = this.reverse(this.buffer);
+      start = Math.max(0, this.buffer.duration - offset - len);
+    } else {
+      src.buffer = this.buffer;
+    }
+    src.playbackRate.value = rate;
+    const env = ctx.createGain();
+    if (twist === "muffled") {
+      const lp = ctx.createBiquadFilter();
+      lp.type = "lowpass";
+      lp.frequency.value = 450;
+      lp.Q.value = 0.8;
+      src.connect(lp).connect(env);
+    } else {
+      src.connect(env);
+    }
+    env.connect(this.gain);
+    const t0 = ctx.currentTime + 0.02;
+    const real = len / rate;
+    const fade = Math.min(0.004, real / 4);
     env.gain.setValueAtTime(0, t0);
     env.gain.linearRampToValueAtTime(1, t0 + fade);
-    env.gain.setValueAtTime(1, t0 + len - fade);
-    env.gain.linearRampToValueAtTime(0, t0 + len);
+    env.gain.setValueAtTime(1, t0 + real - fade);
+    env.gain.linearRampToValueAtTime(0, t0 + real);
     this.gain.gain.setValueAtTime(this.volume, ctx.currentTime);
     src.onended = () => {
       if (this.source === src) this.source = null;
       onEnded();
     };
-    src.start(t0, offset, len);
+    src.start(t0, start);
+    src.stop(t0 + real);
     this.source = src;
     return t0;
   }

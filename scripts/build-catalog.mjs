@@ -148,6 +148,7 @@ async function main() {
       || res?.data?.find((d) => norm(d.title) === nt);
     if (!hit) return;
     t.dz = hit.id;
+    t.album = hit.album.title;
     const aid = hit.album.id;
     if (!albumGenres.has(aid)) {
       const al = await deezer(`https://api.deezer.com/album/${aid}`);
@@ -168,13 +169,13 @@ async function main() {
       const d = Math.min(...decades);
       if (year > d + 9) { year = 0; fixed++; }
     }
-    return [t.id, t.title, t.artists.join("|"), year, decades.length ? Math.min(...decades) : 0, [...t.genres].join(","), t.prev, t.dur, t.ex, t.dz || 0, t.img || ""];
+    return [t.id, t.title, t.artists.join("|"), year, decades.length ? Math.min(...decades) : 0, [...t.genres].join(","), t.prev, t.dur, t.ex, t.dz || 0, t.img || "", t.album || ""];
   });
   console.log(`decade-overridden years: ${fixed}`);
   writeFileSync(OUT, JSON.stringify({
     v: 1,
     built: new Date().toISOString().slice(0, 10),
-    fields: ["spotifyId", "title", "artists", "year", "decade", "genres", "previewId", "durationSec", "explicit", "deezerId", "imageId"],
+    fields: ["spotifyId", "title", "artists", "year", "decade", "genres", "previewId", "durationSec", "explicit", "deezerId", "imageId", "album"],
     tracks: out,
   }));
   console.log(`wrote ${out.length} tracks to ${OUT}`);

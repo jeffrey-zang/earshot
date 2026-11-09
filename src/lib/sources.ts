@@ -36,6 +36,13 @@ export function sourceKey(s: SourceSpec): string {
   return JSON.stringify(s);
 }
 
+/** Name of the playlist a source represents, if it is one (for "which playlist" rounds). */
+export function playlistName(s: SourceSpec): string | null {
+  if (s.kind === "spotify-playlist" || s.kind === "deezer-playlist") return s.name;
+  if (s.kind === "spotify-link" && s.type === "playlist") return s.name;
+  return null;
+}
+
 export function needsSpotifyLogin(s: SourceSpec): boolean {
   return s.kind.startsWith("spotify-") && s.kind !== "spotify-link";
 }
@@ -66,9 +73,12 @@ export async function loadSource(s: SourceSpec, progress: (msg: string) => void)
     case "deezer-artist":
       progress(`Loading ${s.name}`);
       return res((await dzArtistTop(s.id, 100)).map((t) => dzToTrack(t, s.name)));
-    case "deezer-playlist":
+    case "deezer-playlist": {
       progress(`Loading ${s.name}`);
-      return res(await deezerPaged(`playlist/${s.id}/tracks`, label));
+      const tracks = await deezerPaged(`playlist/${s.id}/tracks`, label);
+      for (const t of tracks) t.playlists = [s.name];
+      return res(tracks);
+    }
     case "deezer-album": {
       progress(`Loading ${s.name}`);
       const album = await dz<{ title: string; cover_medium?: string; release_date?: string; tracks: { data: DzTrack[] } }>(`album/${s.id}`);
@@ -82,7 +92,9 @@ export async function loadSource(s: SourceSpec, progress: (msg: string) => void)
         return { tracks: embedToTracks(e, e.name), artists: [{ key: `spa:${s.id}`, name: e.name, spotifyId: s.id, sourceLabel: e.name }], notes: [] };
       }
       const notes = s.type === "playlist" && e.tracks.length >= 100 ? [`${e.name}: links without a Spotify login are limited to the first 100 songs.`] : [];
-      return res(embedToTracks(e, e.name), notes);
+      const tracks = embedToTracks(e, e.name);
+      if (s.type === "playlist") for (const t of tracks) t.playlists = [e.name];
+      return res(tracks, notes);
     }
     case "spotify-liked":
       return res(await spotify.getLikedTracks(progress));
@@ -100,7 +112,9 @@ export async function loadSource(s: SourceSpec, progress: (msg: string) => void)
         if (!(e instanceof SpotifyError) || (e.status !== 403 && e.status !== 404)) throw e;
         // Spotify only lets development-mode apps read playlists you own; use the public embed instead.
         const embed = await fetchEmbed("playlist", s.id);
-        return res(embedToTracks(embed, s.name), embed.tracks.length >= 100 ? [`${s.name}: Spotify only shares the first 100 songs of playlists you don't own.`] : []);
+        const tracks = embedToTracks(embed, s.name);
+        for (const t of tracks) t.playlists = [s.name];
+        return res(tracks, embed.tracks.length >= 100 ? [`${s.name}: Spotify only shares the first 100 songs of playlists you don't own.`] : []);
       }
     case "spotify-saved-albums":
       return res(await spotify.getSavedAlbumTracks(progress));

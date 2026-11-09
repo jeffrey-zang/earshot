@@ -1,4 +1,5 @@
 import type { ArtistRef, Filters, GameSettings, Track } from "./types";
+type Needs = { year: boolean; album: boolean; added: boolean; playlist: boolean };
 import { artistsOverlap, isAltVersion, normArtist, normTitle } from "./text";
 import { enrichTrack } from "./enrich";
 import { expandArtist } from "./sources";
@@ -41,9 +42,18 @@ export function checkFilters(t: Track, f: Filters): Verdict {
   return unknown ? "unknown" : "yes";
 }
 
+/** Data a round needs beyond the filters, given the mode. */
+export function modeNeeds(s: GameSettings): Needs {
+  if (s.mode === "higherlower") return { year: s.hlMetric === "year", album: false, added: s.hlMetric === "added", playlist: false };
+  if (s.mode === "lyrics") return { year: false, album: false, added: false, playlist: false };
+  return { year: s.fields.includes("year"), album: s.fields.includes("album"), added: s.fields.includes("added"), playlist: s.fields.includes("playlist") };
+}
+
 export class Pool {
   /** Every track known so far (including expanded artists), for autocomplete. */
   all: Track[] = [];
+  private byId = new Map<string, Track>();
+  private needs: Needs;
   private queue: Track[] = [];
   private artistQueue: ArtistRef[] = [];
   private expanded = new Map<string, Track[]>();
@@ -53,6 +63,7 @@ export class Pool {
   notes: string[] = [];
 
   constructor(tracks: Track[], artists: ArtistRef[], private filters: Filters, private settings: GameSettings) {
+    this.needs = modeNeeds(settings);
     for (const t of tracks) this.add(t);
     const seenArtists = new Set<string>();
     this.artistQueue = shuffle(artists.filter((a) => {
@@ -68,11 +79,29 @@ export class Pool {
 
   private add(t: Track, enqueue = true): boolean {
     const id = songId(t);
-    if (this.seen.has(id)) return false;
+    const existing = this.byId.get(id);
+    if (existing) {
+      // same song from another source: keep what each source knows
+      if (t.playlists?.length) existing.playlists = [...new Set([...(existing.playlists ?? []), ...t.playlists])];
+      if (t.addedAt && (!existing.addedAt || t.addedAt < existing.addedAt)) existing.addedAt = t.addedAt;
+      if (t.album && !existing.album) existing.album = t.album;
+      if (enqueue && !this.queue.includes(existing) && !this.used.has(id) && checkFilters(existing, this.filters) !== "no") this.queue.push(existing);
+      return false;
+    }
     this.seen.add(id);
+    this.byId.set(id, t);
     this.all.push(t);
     if (enqueue && checkFilters(t, this.filters) !== "no") this.queue.push(t);
     return true;
+  }
+
+  /** Whether the track has the data this mode needs: yes / no / unknown (look it up). */
+  private checkNeeds(t: Track): "yes" | "no" | "unknown" {
+    const n = this.needs;
+    if (n.added && !t.addedAt) return "no";
+    if (n.playlist && !t.playlists?.length) return "no";
+    if ((n.year && !t.year) || (n.album && !t.album)) return t.enriched ? "no" : "unknown";
+    return "yes";
   }
 
   /** Songs known to match (plus ones we can't rule out yet). */
@@ -103,15 +132,17 @@ export class Pool {
   private async accept(t: Track): Promise<Track | null> {
     if (this.used.has(songId(t)) || !this.artistAllowed(t)) return null;
     let verdict = checkFilters(t, this.filters);
-    if (verdict === "unknown") {
-      const needYear = this.filters.yearFrom != null || this.filters.yearTo != null;
-      const enriched = await enrichTrack(t, { year: needYear, genre: this.filters.genres.length > 0 });
+    let needs = this.checkNeeds(t);
+    if (verdict === "no" || needs === "no") return null;
+    if (verdict === "unknown" || needs === "unknown") {
+      const needYear = this.filters.yearFrom != null || this.filters.yearTo != null || this.needs.year;
+      const enriched = await enrichTrack(t, { year: needYear, genre: this.filters.genres.length > 0, album: this.needs.album });
       Object.assign(t, enriched);
       verdict = checkFilters(t, this.filters);
-      // still unknown after enrichment: only accept when the unknown part is genre-free & year-free
-      if (verdict === "unknown") return null;
+      needs = this.checkNeeds(t);
+      // still unknown after enrichment: skip it
+      if (verdict !== "yes" || needs !== "yes") return null;
     }
-    if (verdict !== "yes") return null;
     this.markUsed(t);
     return t;
   }

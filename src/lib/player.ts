@@ -1,5 +1,5 @@
 import type { GameSettings, Track } from "./types";
-import { PreviewEngine } from "./audio";
+import { PreviewEngine, type ActiveTwist } from "./audio";
 import { previewCandidates } from "./resolve";
 import { SpotifyFullTrackPlayer } from "./spotify/player";
 import { searchTrackId } from "./spotify/api";
@@ -17,6 +17,14 @@ export interface SnippetPlayer {
   setVolume(v: number): void;
   /** Where the snippet starts within the audio, for display. */
   startLabel(): string;
+  /** Move the snippet start (seconds into the audio) after activate(). */
+  setStart(seconds: number): void;
+  /** Whether this player can apply audio twists. */
+  readonly canTwist: boolean;
+  /** Twist applied to the current round's snippets. */
+  setTwist(t: ActiveTwist): void;
+  /** True if positions are in the full song (so synced lyrics line up). */
+  readonly fullTrack: boolean;
   dispose(): void;
 }
 
@@ -27,6 +35,9 @@ function fmt(sec: number) {
 }
 
 export class PreviewSnippetPlayer implements SnippetPlayer {
+  readonly canTwist = true;
+  readonly fullTrack = false;
+  private twist: ActiveTwist = "none";
   private engine = new PreviewEngine();
   private buffers = new Map<string, Promise<AudioBuffer | null>>();
   private offset = 0;
@@ -56,8 +67,9 @@ export class PreviewSnippetPlayer implements SnippetPlayer {
   }
 
   async activate(track: Track, rand: () => number) {
+    if (!this.buffers.has(track.key)) await this.prepare(track);
     const buf = await this.buffers.get(track.key);
-    if (!buf) throw new Error("audio not prepared");
+    if (!buf) throw new Error("No audio for this song");
     this.engine.setBuffer(buf);
     const longest = this.settings.steps[this.settings.steps.length - 1] ?? 16;
     this.offset = this.engine.pickStart(this.settings.startMode, longest, rand);
@@ -67,16 +79,29 @@ export class PreviewSnippetPlayer implements SnippetPlayer {
 
   async play(seconds: number, onEnded: () => void) {
     this.length = seconds;
-    const t0 = await this.engine.play(this.offset, seconds, () => {
-      this.startedAt = null;
-      onEnded();
-    });
+    const t0 = await this.engine.play(
+      this.offset,
+      seconds,
+      () => {
+        this.startedAt = null;
+        onEnded();
+      },
+      this.twist,
+    );
     this.startedAt = t0;
   }
 
   elapsed() {
     if (this.startedAt == null) return null;
-    return Math.max(0, Math.min(this.length, this.engine.now() - this.startedAt));
+    return Math.max(0, Math.min(this.length, (this.engine.now() - this.startedAt) * this.engine.rate));
+  }
+
+  setStart(seconds: number) {
+    this.offset = Math.max(0, Math.min(seconds, this.engine.duration - 0.5));
+  }
+
+  setTwist(t: ActiveTwist) {
+    this.twist = t;
   }
 
   stop() {
@@ -99,6 +124,8 @@ export class PreviewSnippetPlayer implements SnippetPlayer {
 }
 
 export class SpotifySnippetPlayer implements SnippetPlayer {
+  readonly canTwist = false;
+  readonly fullTrack = true;
   private sp = new SpotifyFullTrackPlayer();
   private ids = new Map<string, Promise<string | null>>();
   private offsetMs = 0;
@@ -158,6 +185,14 @@ export class SpotifySnippetPlayer implements SnippetPlayer {
 
   startLabel() {
     return this.offsetMs === 0 ? "the very start of the song" : `${fmt(this.offsetMs / 1000)} into the song`;
+  }
+
+  setStart(seconds: number) {
+    this.offsetMs = Math.max(0, seconds * 1000);
+  }
+
+  setTwist() {
+    /* the Spotify SDK can't apply effects */
   }
 
   dispose() {

@@ -4,7 +4,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { GameConfig, GameSettings, RoundResult, Track, ArtistRef } from "@/lib/types";
 import { getPendingGame, loadConfig } from "@/lib/settings";
-import { describeSource, loadSource } from "@/lib/sources";
+import { describeSource, loadSource, playlistName } from "@/lib/sources";
+import { FIELD_INFO, unavailableFields } from "@/lib/modes";
+import { lastfmEnabled } from "@/lib/lastfm";
+import { isConnected } from "@/lib/spotify/auth";
+import { LyricsGame } from "./LyricsGame";
+import { HigherLowerGame } from "./HigherLowerGame";
 import { Pool } from "@/lib/pool";
 import { decodeChallenge, loadChallengeTracks, type Challenge } from "@/lib/challenge";
 import { PreviewSnippetPlayer, SpotifySnippetPlayer, type SnippetPlayer } from "@/lib/player";
@@ -16,7 +21,7 @@ import { Button, Logo, Spinner } from "./ui";
 type Phase =
   | { kind: "loading"; messages: string[] }
   | { kind: "error"; message: string }
-  | { kind: "playing"; source: TrackSource; player: SnippetPlayer; settings: GameSettings; rounds: number; seed: number; notes: string[]; challenge?: Challenge }
+  | { kind: "playing"; source: TrackSource; player: SnippetPlayer; settings: GameSettings; rounds: number; seed: number; notes: string[]; challenge?: Challenge; playlists: string[] }
   | { kind: "done"; results: RoundResult[]; settings: GameSettings; seed: number; note?: string; challenge?: Challenge };
 
 class FixedSource implements TrackSource {
@@ -28,7 +33,8 @@ class FixedSource implements TrackSource {
 }
 
 function makePlayer(settings: GameSettings): { player: SnippetPlayer; note?: string } {
-  if (settings.engine === "spotify") {
+  // higher-or-lower flips between two songs, which full-track playback can't do quickly
+  if (settings.engine === "spotify" && settings.mode !== "higherlower") {
     if (hasScopes(PLAYBACK_SCOPES)) return { player: new SpotifySnippetPlayer(settings) };
     return { player: new PreviewSnippetPlayer(settings), note: "Full-track playback needs a Spotify Premium login with playback allowed, so this game uses previews." };
   }
@@ -58,14 +64,37 @@ export function Play() {
         const tracks = await loadChallengeTracks(challenge.t);
         if (!tracks.length) throw new Error("None of the songs in this challenge could be loaded.");
         const settings: GameSettings = { ...loadConfig().settings, ...challenge.s, engine: "preview", rounds: tracks.length };
+        if (!settings.fields?.length) settings.fields = ["title"];
+        const rounds = settings.mode === "higherlower" ? tracks.length - 1 : tracks.length;
         const { player } = makePlayer(settings);
-        if (!cancelled) setPhase({ kind: "playing", source: new FixedSource(tracks), player, settings, rounds: tracks.length, seed: challenge.seed, notes: [], challenge });
+        if (!cancelled) setPhase({ kind: "playing", source: new FixedSource(tracks), player, settings, rounds, seed: challenge.seed, notes: [], challenge, playlists: [] });
         return;
       }
 
       const config: GameConfig = getPendingGame() ?? loadConfig();
       if (!config.sources.length) throw new Error("No songs selected.");
       const notes: string[] = [];
+      const playlists = [...new Set(config.sources.map(playlistName).filter((x): x is string => !!x))];
+      const settings: GameSettings = { ...config.settings };
+      // drop questions this setup can't answer (no Last.fm key, no Spotify login, one playlist...)
+      const savedDates = isConnected() && config.sources.some((x) => x.kind === "spotify-liked" || x.kind === "spotify-playlist" || x.kind === "spotify-saved-albums");
+      if (settings.mode === "classic") {
+        const lastfm = settings.fields.some((f) => f === "plays" || f === "myplays") ? await lastfmEnabled() : false;
+        const missing = unavailableFields(settings, { spotify: savedDates, lastfm, playlists: playlists.length });
+        if (missing.length) {
+          settings.fields = settings.fields.filter((f) => !missing.includes(f));
+          notes.push(`Skipping ${missing.map((f) => FIELD_INFO[f].label.toLowerCase()).join(", ")}: ${missing.map((f) => needText(FIELD_INFO[f].needs)).join("; ")}.`);
+          if (!settings.fields.length) settings.fields = ["title"];
+        }
+      }
+      if (settings.mode === "higherlower" && settings.hlMetric === "added" && !savedDates) {
+        settings.hlMetric = "year";
+        notes.push("Saved dates come from your Spotify Liked Songs, playlists or saved albums, so this game compares release years instead.");
+      }
+      if (settings.mode === "higherlower" && settings.hlMetric === "plays" && !(await lastfmEnabled())) {
+        settings.hlMetric = "popularity";
+        notes.push("Last.fm isn't set up on this site, so this game compares popularity instead of plays.");
+      }
       const tracks: Track[] = [];
       const artists: ArtistRef[] = [];
       const loaded = await Promise.allSettled(config.sources.map((s) => loadSource(s, log)));
@@ -79,12 +108,13 @@ export function Play() {
         }
       });
       if (!tracks.length && !artists.length) throw new Error(notes.join("\n") || "Those sources have no songs.");
-      const pool = new Pool(tracks, artists, config.filters, config.settings);
+      const pool = new Pool(tracks, artists, config.filters, settings);
       if (!pool.candidateCount && !pool.artistCount) throw new Error(`None of the ${tracks.length.toLocaleString()} songs match your filters.`);
-      const rounds = config.settings.rounds || Math.min(500, pool.estimatedSize);
-      const { player, note } = makePlayer(config.settings);
+      const rounds = settings.rounds || Math.min(500, pool.estimatedSize);
+      const { player, note } = makePlayer(settings);
       if (note) notes.push(note);
-      if (!cancelled) setPhase({ kind: "playing", source: pool, player, settings: config.settings, rounds, seed, notes });
+      if (settings.mode === "lyrics" && !player.fullTrack) notes.push("Lyrics with previews: you get the line before as a clue. With Spotify Premium full tracks you hear the seconds before the line instead.");
+      if (!cancelled) setPhase({ kind: "playing", source: pool, player, settings, rounds, seed, notes, playlists });
     })().catch((e: Error) => {
       if (!cancelled) setPhase({ kind: "error", message: e.message });
     });
@@ -178,9 +208,22 @@ export function Play() {
     );
   }
 
+  const common = {
+    source: phase.source,
+    player: phase.player,
+    settings: phase.settings,
+    totalRounds: phase.rounds,
+    seed: phase.seed,
+    banner,
+    onQuit: () => router.push("/"),
+    onFinish: (results: RoundResult[], note?: string) => setPhase({ kind: "done", results, settings: phase.settings, seed: phase.seed, note, challenge: phase.challenge }),
+  };
+  if (phase.settings.mode === "lyrics") return <LyricsGame key={attempt} {...common} />;
+  if (phase.settings.mode === "higherlower") return <HigherLowerGame key={attempt} {...common} />;
   return (
     <Game
       key={attempt}
+      playlistOptions={phase.playlists}
       source={phase.source}
       player={phase.player}
       settings={phase.settings}
@@ -191,4 +234,14 @@ export function Play() {
       onFinish={(results, note) => setPhase({ kind: "done", results, settings: phase.settings, seed: phase.seed, note, challenge: phase.challenge })}
     />
   );
+}
+
+function needText(need: string | undefined): string {
+  switch (need) {
+    case "spotify": return "needs your Spotify Liked Songs, playlists or saved albums";
+    case "lastfm": return "Last.fm isn't set up on this site";
+    case "lastfmUser": return "needs Last.fm and your Last.fm username";
+    case "playlists": return "needs two or more playlists in the game";
+    default: return "not available";
+  }
 }

@@ -8,6 +8,14 @@ export interface ItunesHit {
   image?: string;
   title: string;
   artist: string;
+  /** Album names this recording appears on, original albums first. */
+  albums: string[];
+  /** The first non-compilation album, if any. */
+  originalAlbum?: string;
+}
+
+function isCompilation(r: ItunesResult): boolean {
+  return !!r.collectionArtistName || COMPILATION_RE.test(r.collectionName ?? "");
 }
 
 interface ItunesResult {
@@ -18,7 +26,12 @@ interface ItunesResult {
   releaseDate?: string;
   primaryGenreName?: string;
   artworkUrl100?: string;
+  collectionName?: string;
+  /** Only set on compilations ("Various Artists"). */
+  collectionArtistName?: string;
 }
+
+const COMPILATION_RE = /\b(hits|greatest|best of|collection|essential|anthology|now that's|now!|top \d+|karaoke|playlist|60s|70s|80s|90s|00s|party|workout|summer|love songs|classics|gold)\b/i;
 
 // iTunes Search sends CORS headers, so the browser calls it directly (rate limits then apply per player).
 export async function itunesFind(title: string, artists: string[]): Promise<ItunesHit | null> {
@@ -42,6 +55,16 @@ export async function itunesFind(title: string, artists: string[]): Promise<Itun
       image: h.artworkUrl100?.replace("100x100", "300x300"),
       title: h.trackName,
       artist: h.artistName,
+      // original albums first; compilations are accepted answers but never the one shown
+      albums: [
+        ...new Set(
+          [...hits]
+            .sort((a, b) => Number(isCompilation(a)) - Number(isCompilation(b)))
+            .map((x) => x.collectionName)
+            .filter((x): x is string => !!x),
+        ),
+      ],
+      originalAlbum: hits.find((x) => !isCompilation(x))?.collectionName,
     };
   } catch {
     return null;

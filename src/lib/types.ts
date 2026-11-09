@@ -25,6 +25,18 @@ export interface Track {
   sourceLabel?: string;
   /** Set once enrichment was attempted so we don't retry. */
   enriched?: boolean;
+  /** Other accepted album titles (original album, reissues, compilations). */
+  albums?: string[];
+  /** When the user saved it (liked, added to a playlist, saved the album). ISO date. */
+  addedAt?: string;
+  /** Names of the playlists in this game that contain the song. */
+  playlists?: string[];
+  /** Deezer popularity rank (higher is more popular). */
+  rank?: number;
+  /** Last.fm play counts, fetched when a mode needs them. */
+  lastfm?: { playcount: number; listeners: number; userplaycount?: number };
+  /** Lyrics lines, fetched when a mode needs them. `time` is seconds into the full track. */
+  lyrics?: { lines: { time: number | null; text: string }[]; synced: boolean };
 }
 
 /** A lazily expanded artist: their tracks are fetched only when the game samples them. */
@@ -57,6 +69,15 @@ export type SourceSpec =
 export type StartMode = "beginning" | "middle" | "random";
 export type Engine = "preview" | "spotify";
 
+/** What kind of game: name things from a snippet, finish a lyric, or compare two songs. */
+export type GameMode = "classic" | "lyrics" | "higherlower";
+/** What a classic round asks for. Several can be combined. */
+export type AnswerField = "title" | "artist" | "album" | "year" | "plays" | "myplays" | "added" | "playlist";
+/** Audio effects that make snippets harder (previews only). */
+export type Twist = "none" | "reverse" | "fast" | "slow" | "muffled" | "random";
+/** What higher-or-lower compares. */
+export type HLMetric = "year" | "popularity" | "plays" | "added";
+
 export interface GameSettings {
   /** Number of rounds; 0 means "every song in the pool". */
   rounds: number;
@@ -76,6 +97,16 @@ export interface GameSettings {
   /** Tracks per artist when an artist source is sampled. */
   tracksPerArtist: number;
   volume: number;
+  mode: GameMode;
+  fields: AnswerField[];
+  twist: Twist;
+  /** Lyrics mode: seconds of audio before the missing line (full tracks only). */
+  lyricLead: number;
+  hlMetric: HLMetric;
+  /** Higher-or-lower: mistakes allowed before the run ends. */
+  hlLives: number;
+  /** Last.fm username, for "your plays". */
+  lastfmUser: string;
 }
 
 export interface Filters {
@@ -104,6 +135,19 @@ export interface Guess {
   at: number;
 }
 
+export interface FieldResult {
+  field: AnswerField;
+  /** right: exact; close: partial credit; wrong: no credit. */
+  outcome: "right" | "close" | "wrong";
+  points: number;
+  guess?: string;
+  answer: string;
+  /** e.g. "off by 2 years" */
+  detail?: string;
+  /** Seconds of audio unlocked when answered. */
+  at?: number;
+}
+
 export interface RoundResult {
   track: Track;
   guesses: Guess[];
@@ -111,4 +155,10 @@ export interface RoundResult {
   /** Seconds of audio unlocked when solved (or the max). */
   listened: number;
   points: number;
+  fields?: FieldResult[];
+  /** Lyrics mode */
+  lyric?: { line: string; guess: string; similarity: number; hints: number };
+  /** Higher-or-lower: the song this one was compared against. */
+  versus?: { track: Track; metric: HLMetric; choice: "higher" | "lower"; correct: boolean; a: number; b: number };
+  twist?: Twist;
 }

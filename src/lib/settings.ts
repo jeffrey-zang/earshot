@@ -19,6 +19,13 @@ export const DEFAULT_SETTINGS: GameSettings = {
   strictArtist: true,
   tracksPerArtist: 10,
   volume: 0.8,
+  mode: "classic",
+  fields: ["title"],
+  twist: "none",
+  lyricLead: 5,
+  hlMetric: "year",
+  hlLives: 1,
+  lastfmUser: "",
 };
 
 export const DEFAULT_FILTERS: Filters = {
@@ -58,14 +65,20 @@ function write(storage: () => Storage, key: string, value: unknown) {
   }
 }
 
-export function loadConfig(): GameConfig {
-  const saved = read<GameConfig>(() => localStorage, CONFIG_KEY);
-  if (!saved) return DEFAULT_CONFIG;
+/** Fill in settings added after a config was saved. */
+export function normalizeConfig(saved: Partial<GameConfig>): GameConfig {
+  const settings = { ...DEFAULT_SETTINGS, ...saved.settings };
+  if (!Array.isArray(settings.fields) || !settings.fields.length) settings.fields = ["title"];
   return {
     sources: Array.isArray(saved.sources) ? saved.sources : DEFAULT_CONFIG.sources,
     filters: { ...DEFAULT_FILTERS, ...saved.filters },
-    settings: { ...DEFAULT_SETTINGS, ...saved.settings },
+    settings,
   };
+}
+
+export function loadConfig(): GameConfig {
+  const saved = read<GameConfig>(() => localStorage, CONFIG_KEY);
+  return saved ? normalizeConfig(saved) : DEFAULT_CONFIG;
 }
 
 export function saveConfig(config: GameConfig) {
@@ -79,5 +92,6 @@ export function setPendingGame(config: GameConfig) {
 }
 
 export function getPendingGame(): GameConfig | null {
-  return read<GameConfig>(() => sessionStorage, PENDING_KEY);
+  const saved = read<GameConfig>(() => sessionStorage, PENDING_KEY);
+  return saved ? normalizeConfig(saved) : null;
 }

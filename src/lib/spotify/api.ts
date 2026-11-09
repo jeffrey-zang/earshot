@@ -93,9 +93,16 @@ export async function getMe(): Promise<{ id: string; display_name?: string; prod
 
 type Progress = (msg: string) => void;
 
+function withAdded(t: Track | null, addedAt?: string | null, playlist?: string): Track | null {
+  if (!t) return null;
+  if (addedAt && !addedAt.startsWith("1970")) t.addedAt = addedAt;
+  if (playlist) t.playlists = [playlist];
+  return t;
+}
+
 export async function getLikedTracks(progress?: Progress): Promise<Track[]> {
-  const items = await collect<{ track: SpTrack }>("/me/tracks?limit=50", (n, total) => progress?.(`Liked Songs: ${n}${total ? ` / ${total}` : ""}`));
-  return items.map((i) => spToTrack(i.track, "Liked Songs")).filter((t): t is Track => !!t);
+  const items = await collect<{ track: SpTrack; added_at?: string }>("/me/tracks?limit=50", (n, total) => progress?.(`Liked Songs: ${n}${total ? ` / ${total}` : ""}`));
+  return items.map((i) => withAdded(spToTrack(i.track, "Liked Songs"), i.added_at)).filter((t): t is Track => !!t);
 }
 
 const RANGE_LABEL: Record<TimeRange, string> = { short_term: "last 4 weeks", medium_term: "last 6 months", long_term: "all time" };
@@ -127,7 +134,7 @@ export function playlistCount(p: SpPlaylist): number | undefined {
  * collaborates on, so callers fall back to the public embed page when this throws 403/404.
  */
 export async function getPlaylistTracks(id: string, name: string, progress?: Progress): Promise<Track[]> {
-  type Entry = { item?: SpTrack; track?: SpTrack };
+  type Entry = { item?: SpTrack; track?: SpTrack; added_at?: string };
   let items: Entry[];
   try {
     items = await collect<Entry>(`/playlists/${id}/items?limit=50`, (n, total) => progress?.(`${name}: ${n}${total ? ` / ${total}` : ""}`));
@@ -135,12 +142,12 @@ export async function getPlaylistTracks(id: string, name: string, progress?: Pro
     if (!(e instanceof SpotifyError) || (e.status !== 404 && e.status !== 400)) throw e;
     items = await collect<Entry>(`/playlists/${id}/tracks?limit=50`, (n, total) => progress?.(`${name}: ${n}${total ? ` / ${total}` : ""}`));
   }
-  return items.map((i) => spToTrack((i.item ?? i.track) as SpTrack, name)).filter((t): t is Track => !!t);
+  return items.map((i) => withAdded(spToTrack((i.item ?? i.track) as SpTrack, name), i.added_at, name)).filter((t): t is Track => !!t);
 }
 
 export async function getSavedAlbumTracks(progress?: Progress): Promise<Track[]> {
-  const items = await collect<{ album: SpAlbum }>("/me/albums?limit=50", (n, total) => progress?.(`Saved albums: ${n}${total ? ` / ${total}` : ""}`));
-  return items.flatMap(({ album }) => (album.tracks?.items ?? []).map((t) => spToTrack(t, `Album: ${album.name}`, album))).filter((t): t is Track => !!t);
+  const items = await collect<{ album: SpAlbum; added_at?: string }>("/me/albums?limit=50", (n, total) => progress?.(`Saved albums: ${n}${total ? ` / ${total}` : ""}`));
+  return items.flatMap(({ album, added_at }) => (album.tracks?.items ?? []).map((t) => withAdded(spToTrack(t, `Album: ${album.name}`, album), added_at))).filter((t): t is Track => !!t);
 }
 
 export async function getFollowedArtists(progress?: Progress): Promise<ArtistRef[]> {

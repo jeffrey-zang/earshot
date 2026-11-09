@@ -1,6 +1,6 @@
 import type { GenreCode, Track } from "./types";
 
-type Row = [string, string, string, number, number, string, string, number, number, number, string];
+type Row = [string, string, string, number, number, string, string, number, number, number, string, string?];
 
 let cache: Promise<Track[]> | null = null;
 
@@ -13,7 +13,7 @@ export function loadCatalog(): Promise<Track[]> {
         return r.json();
       })
       .then((data: { tracks: Row[] }) =>
-        data.tracks.map(([id, title, artists, year, decade, genres, previewId, dur, explicit, deezerId, imageId]) => ({
+        data.tracks.map(([id, title, artists, year, decade, genres, previewId, dur, explicit, deezerId, imageId, album]) => ({
           key: `sp:${id}`,
           spotifyId: id,
           title,
@@ -26,6 +26,7 @@ export function loadCatalog(): Promise<Track[]> {
           explicit: !!explicit,
           deezerId: deezerId || undefined,
           image: imageId ? `https://i.scdn.co/image/ab67616d00001e02${imageId}` : undefined,
+          album: album || undefined,
           sourceLabel: "Hits catalog",
         })),
       );

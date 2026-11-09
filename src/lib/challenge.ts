@@ -12,11 +12,23 @@ export interface Challenge {
   score?: number;
 }
 
-const SHARED_SETTINGS: (keyof GameSettings)[] = ["steps", "startMode", "maxPoints", "halfLife", "wrongPenalty", "wrongUnlocks", "strictArtist"];
+const SHARED_SETTINGS: (keyof GameSettings)[] = ["steps", "startMode", "maxPoints", "halfLife", "wrongPenalty", "wrongUnlocks", "strictArtist", "mode", "fields", "twist", "lyricLead", "hlMetric", "hlLives"];
+
+/** Questions that depend on the player's own library or Last.fm account can't be shared. */
+const PERSONAL_FIELDS = new Set(["myplays", "added", "playlist"]);
+
+/** Whether a game with these settings can be replayed by someone else. */
+export function canShare(settings: GameSettings): boolean {
+  if (settings.mode === "higherlower") return settings.hlMetric !== "added";
+  if (settings.mode === "classic") return settings.fields.some((f) => !PERSONAL_FIELDS.has(f));
+  return true;
+}
 
 export function makeChallenge(tracks: Track[], settings: GameSettings, seed: number, score?: number, by?: string): Challenge {
   const s: Partial<GameSettings> = {};
   for (const k of SHARED_SETTINGS) (s as Record<string, unknown>)[k] = settings[k];
+  if (s.fields) s.fields = s.fields.filter((f) => !PERSONAL_FIELDS.has(f));
+  // higher-or-lower is a chain: the first song is the starting point
   return { v: 1, t: tracks.map((t) => t.key), s, seed, score, by };
 }
 

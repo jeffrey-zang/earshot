@@ -2,9 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { GameConfig, SourceSpec } from "@/lib/types";
+import type { GameConfig, GameSettings, SourceSpec } from "@/lib/types";
 import { DEFAULT_FILTERS, STEP_PRESETS, loadConfig, saveConfig, setPendingGame } from "@/lib/settings";
-import { describeSource, needsSpotifyLogin } from "@/lib/sources";
+import { describeSource, needsSpotifyLogin, playlistName } from "@/lib/sources";
+import { describeMode } from "@/lib/modes";
+import { ModePanel } from "./ModePanel";
 import { beginLogin, getClientId, isConnected } from "@/lib/spotify/auth";
 import { GENRES } from "@/lib/genres";
 import { pointsFor, formatSeconds } from "@/lib/scoring";
@@ -22,18 +24,31 @@ interface Preset {
   apply: (c: GameConfig) => GameConfig;
 }
 
-const only = (sources: SourceSpec[], rounds: number, filters: Partial<GameConfig["filters"]> = {}) => (c: GameConfig): GameConfig => ({
-  sources,
-  filters: { ...DEFAULT_FILTERS, ...filters },
-  settings: { ...c.settings, rounds },
-});
+const CLASSIC: Partial<GameSettings> = { mode: "classic", fields: ["title"], twist: "none" };
+
+const only =
+  (sources: SourceSpec[], rounds: number, filters: Partial<GameConfig["filters"]> = {}, patch: Partial<GameSettings> = {}) =>
+  (c: GameConfig): GameConfig => ({
+    sources,
+    filters: { ...DEFAULT_FILTERS, ...filters },
+    settings: { ...c.settings, ...CLASSIC, ...patch, rounds },
+  });
+
+const CATALOG: SourceSpec[] = [{ kind: "catalog" }];
 
 const PRESETS: Preset[] = [
-  { title: "Quick five", blurb: "Five hits from any decade", meta: "Hits catalog · 5 rounds", apply: only([{ kind: "catalog" }], 5) },
-  { title: "Throwbacks", blurb: "Ten songs from before 2000", meta: "Hits catalog · 10 rounds", apply: only([{ kind: "catalog" }], 10, { yearTo: 1999 }) },
+  { title: "Quick five", blurb: "Five hits from any decade", meta: "Hits catalog · 5 rounds", apply: only(CATALOG, 5) },
+  { title: "Throwbacks", blurb: "Ten songs from before 2000", meta: "Hits catalog · 10 rounds", apply: only(CATALOG, 10, { yearTo: 1999 }) },
   { title: "Charting now", blurb: "Five from the live global top 100", meta: "Global top 100 · 5 rounds", apply: only([{ kind: "deezer-chart" }], 5) },
+  { title: "Triple threat", blurb: "Song, artist and year, each scored on its own", meta: "Hits catalog · 5 rounds", apply: only(CATALOG, 5, {}, { fields: ["title", "artist", "year"] }) },
+  { title: "Name the year", blurb: "When did it come out? Closer is better", meta: "Hits catalog · 10 rounds", apply: only(CATALOG, 10, {}, { fields: ["year"] }) },
+  { title: "Backwards", blurb: "Every snippet plays in reverse", meta: "Hits catalog · 5 rounds", apply: only(CATALOG, 5, {}, { twist: "reverse", steps: [0.5, 1, 2, 4, 8, 16] }) },
+  { title: "Finish the lyric", blurb: "Type the line that comes next", meta: "Hits catalog · 5 lines", apply: only(CATALOG, 5, {}, { mode: "lyrics" }) },
+  { title: "Higher or lower", blurb: "Which came out first? Keep the streak going", meta: "Hits catalog · until you miss", apply: only(CATALOG, 0, {}, { mode: "higherlower", hlMetric: "year", hlLives: 1 }) },
   { title: "My Liked Songs", blurb: "Five rounds from your likes", meta: "Spotify · 5 rounds", spotify: true, apply: only([{ kind: "spotify-liked" }], 5) },
   { title: "Liked, before 1999", blurb: "Your likes released before 1999", meta: "Spotify · 5 rounds", spotify: true, apply: only([{ kind: "spotify-liked" }], 5, { yearTo: 1998 }) },
+  { title: "When did I like this?", blurb: "Hear a liked song, guess the month you saved it", meta: "Spotify · 10 rounds", spotify: true, apply: only([{ kind: "spotify-liked" }], 10, {}, { fields: ["title", "added"] }) },
+  { title: "Which came first?", blurb: "Two liked songs: which did you save earlier?", meta: "Spotify · until you miss", spotify: true, apply: only([{ kind: "spotify-liked" }], 0, {}, { mode: "higherlower", hlMetric: "added", hlLives: 3 }) },
   { title: "Artist marathon", blurb: "Fifty rounds across every artist you follow", meta: "Spotify · 50 rounds", spotify: true, apply: only([{ kind: "spotify-followed-artists" }], 50, { maxPerArtist: 2 }) },
 ];
 
@@ -52,7 +67,8 @@ function rulesSummary(c: GameConfig): [string, string][] {
   const preset = STEP_PRESETS.find((p) => p.steps.join() === s.steps.join());
   const genres = f.genres.map((g) => GENRES.find((x) => x.code === g)?.label ?? g);
   const rows: [string, string][] = [
-    ["Rounds", s.rounds === 0 ? "Every song" : `${s.rounds}`],
+    ["Mode", describeMode(s)],
+    ["Rounds", s.rounds === 0 ? (s.mode === "higherlower" ? "Until you run out of lives" : "Every song") : `${s.rounds}`],
     ["Snippets", `${formatSeconds(s.steps[0])} to ${formatSeconds(s.steps[s.steps.length - 1])}${preset ? "" : `, ${s.steps.length} steps`}`],
     ["Starts at", START_LABEL[s.startMode]],
     ["Scoring", `${s.maxPoints.toLocaleString()}, halves every ${formatSeconds(s.halfLife)}`],
@@ -179,7 +195,18 @@ export function Setup() {
 
         <div className="pt-20">
           <Section title="Build a game" subtitle="Mix any sources. Duplicates are removed.">
-            <div className="flex flex-wrap gap-x-16 gap-y-12 pt-8">
+            <div className="pt-8">
+              <h3 className="mb-1 text-lg font-bold">What you&apos;re guessing</h3>
+              <ModePanel
+                settings={config.settings}
+                onChange={(settings) => setConfig({ ...config, settings })}
+                ctx={{
+                  savedDates: connected && config.sources.some((x) => x.kind === "spotify-liked" || x.kind === "spotify-playlist" || x.kind === "spotify-saved-albums"),
+                  playlists: new Set(config.sources.map(playlistName).filter(Boolean)).size,
+                }}
+              />
+            </div>
+            <div className="flex flex-wrap gap-x-16 gap-y-12 pt-12">
               <div className="min-w-0 flex-[999_1_520px]">
                 <h3 className="mb-1 text-lg font-bold">Songs</h3>
                 <SourcesPanel sources={config.sources} onChange={(sources) => setConfig({ ...config, sources })} />
@@ -231,9 +258,11 @@ export function Setup() {
               "Pick some songs first."
             ) : (
               <span className="line-clamp-2">
-                <span className="font-semibold text-ink">{s.rounds === 0 ? "Every song" : `${s.rounds} rounds`}</span>
+                <span className="font-semibold text-ink">{describeMode(s)}</span>
+                {" · "}
+                {s.rounds === 0 ? (s.mode === "higherlower" ? "until you miss" : "every song") : `${s.rounds} rounds`}
                 <span className="hidden sm:inline"> from {sourceNames.length > 2 ? `${sourceNames.length} sources` : sourceNames.join(" and ")}</span>
-                {" · "}up to {pointsFor(s.steps[0], s).toLocaleString()} each
+                {s.mode === "classic" && <span className="hidden sm:inline"> · up to {pointsFor(s.steps[0], s).toLocaleString()} each</span>}
               </span>
             )}
           </p>
