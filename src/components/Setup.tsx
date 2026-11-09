@@ -77,7 +77,7 @@ function rulesSummary(c: GameConfig): [string, string][] {
     ["Mode", describeMode(s)],
     ["Rounds", s.rounds === 0 ? (s.mode === "higherlower" ? "Until you run out of lives" : "Every song") : `${s.rounds}`],
     ["Snippets", `${formatSeconds(s.steps[0])} to ${formatSeconds(s.steps[s.steps.length - 1])}${preset ? "" : `, ${s.steps.length} steps`}`],
-    ["Starts at", START_LABEL[s.startMode]],
+    ["Starts at", s.engine === "preview" && s.startMode !== "random" ? `${START_LABEL[s.startMode]} of a 30s preview` : START_LABEL[s.startMode]],
     ["Scoring", `${s.maxPoints.toLocaleString()}, halves every ${formatSeconds(s.halfLife)}`],
     ["Wrong guess", s.wrongPenalty ? `−${s.wrongPenalty}` : "Free"],
     ["Years", yearsLabel(f.yearFrom, f.yearTo)],

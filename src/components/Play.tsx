@@ -117,6 +117,13 @@ export function Play() {
       const rounds = settings.rounds || Math.min(500, pool.estimatedSize);
       const { player, note } = makePlayer(settings);
       if (note) notes.push(note);
+      if (settings.mode === "classic" && settings.startMode === "beginning" && !player.fullTrack) {
+        notes.push(
+          note
+            ? "So snippets start at the beginning of a 30s preview clip, which is usually mid-song, not the song's intro."
+            : "Snippets start at the beginning of a 30s preview clip, which is usually mid-song. For the song's real intro, switch Audio to full tracks (Spotify Premium, on a computer).",
+        );
+      }
       if (settings.mode === "lyrics" && !player.fullTrack) notes.push("Lyrics with previews: you get the line before as a clue. With Spotify Premium full tracks you hear the seconds before the line instead.");
       if (!cancelled) setPhase({ kind: "playing", source: pool, player, settings, rounds, seed, notes, playlists });
     })().catch((e: Error) => {

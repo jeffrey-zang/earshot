@@ -120,7 +120,7 @@ export class PreviewSnippetPlayer implements SnippetPlayer {
   }
 
   startLabel() {
-    return `${fmt(this.offset)} into a 30s preview`;
+    return this.offset < 1.5 ? "the start of a 30s preview clip, not the song's intro" : `${fmt(this.offset)} into a 30s preview clip`;
   }
 
   dispose() {

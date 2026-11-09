@@ -169,16 +169,24 @@ export function GamePanel({ settings, onChange }: { settings: GameSettings; onCh
         <Segmented<StartMode>
           value={settings.startMode}
           onChange={(v) => set("startMode", v)}
-          options={[
-            { value: "beginning", label: "Beginning" },
-            { value: "middle", label: "Middle" },
-            { value: "random", label: "Random point" },
-          ]}
+          options={
+            settings.engine === "preview"
+              ? [
+                  { value: "beginning", label: "Start of the clip" },
+                  { value: "middle", label: "Middle of the clip" },
+                  { value: "random", label: "Random point" },
+                ]
+              : [
+                  { value: "beginning", label: "The song's first second" },
+                  { value: "middle", label: "Middle of the song" },
+                  { value: "random", label: "Random point" },
+                ]
+          }
         />
         <Hint>
           {settings.engine === "preview"
-            ? "Previews are 30-second excerpts picked by the music service, often around the hook, so the beginning is the start of that excerpt (silence skipped). Use full tracks to start at the true beginning."
-            : "Full tracks start exactly where you choose: the first note, the middle, or anywhere."}
+            ? "Free previews are 30-second clips that Spotify, Deezer and Apple cut from the middle of each song, usually around the hook, so no free source can play the real intro. To start at the song's actual beginning, set Audio to full tracks below (Spotify Premium on a computer; Spotify's player doesn't run on iPhone or iPad)."
+            : "Full tracks start exactly where you choose. Some songs open with a moment of silence, so the very first snippets can be quiet."}
         </Hint>
       </div>
       <div>

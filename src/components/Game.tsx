@@ -419,7 +419,8 @@ export function Game({ source, player, settings, totalRounds, seed, playlistOpti
             <Kbd>Space</Kbd>
           </button>
           {audioError && <p className="mt-2 text-sm text-error">{audioError}</p>}
-          {ios && round.index === 0 && round.guesses.length === 0 && <p className="mt-2 text-center text-[13px] text-ink-2">No sound? Turn the volume up and check the ring/silent switch.</p>}
+          <p className="mt-2 text-center text-[13px] text-ink-3">Plays from {player.startLabel()}</p>
+          {ios && round.index === 0 && round.guesses.length === 0 && <p className="mt-1 text-center text-[13px] text-ink-2">No sound? Turn the volume up and check the ring/silent switch.</p>}
 
           {multi ? (
             <AnswerSheet
