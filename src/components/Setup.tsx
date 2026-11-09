@@ -46,6 +46,13 @@ const PRESETS: Preset[] = [
   { title: "Finish the lyric", blurb: "Type the line that comes next", meta: "Hits catalog · 5 lines", apply: only(CATALOG, 5, {}, { mode: "lyrics" }) },
   { title: "Higher or lower", blurb: "Which came out first? Keep the streak going", meta: "Hits catalog · until you miss", apply: only(CATALOG, 0, {}, { mode: "higherlower", hlMetric: "year", hlLives: 1 }) },
   { title: "My Liked Songs", blurb: "Five rounds from your likes", meta: "Spotify · 5 rounds", spotify: true, apply: only([{ kind: "spotify-liked" }], 5) },
+  {
+    title: "Heavy rotation",
+    blurb: "What you've actually been playing: top tracks and recent plays",
+    meta: "Spotify · 10 rounds",
+    spotify: true,
+    apply: only([{ kind: "spotify-top", range: "short_term" }, { kind: "spotify-top", range: "medium_term" }, { kind: "spotify-recent" }], 10),
+  },
   { title: "Liked, before 1999", blurb: "Your likes released before 1999", meta: "Spotify · 5 rounds", spotify: true, apply: only([{ kind: "spotify-liked" }], 5, { yearTo: 1998 }) },
   { title: "When did I like this?", blurb: "Hear a liked song, guess the month you saved it", meta: "Spotify · 10 rounds", spotify: true, apply: only([{ kind: "spotify-liked" }], 10, {}, { fields: ["title", "added"] }) },
   { title: "Which came first?", blurb: "Two liked songs: which did you save earlier?", meta: "Spotify · until you miss", spotify: true, apply: only([{ kind: "spotify-liked" }], 0, {}, { mode: "higherlower", hlMetric: "added", hlLives: 3 }) },

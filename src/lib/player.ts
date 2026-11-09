@@ -19,6 +19,8 @@ export interface SnippetPlayer {
   startLabel(): string;
   /** Move the snippet start (seconds into the audio) after activate(). */
   setStart(seconds: number): void;
+  /** Call synchronously from every tap/keypress that may lead to sound (Safari/iOS). */
+  unlock(): void;
   /** Whether this player can apply audio twists. */
   readonly canTwist: boolean;
   /** Twist applied to the current round's snippets. */
@@ -102,6 +104,10 @@ export class PreviewSnippetPlayer implements SnippetPlayer {
 
   setTwist(t: ActiveTwist) {
     this.twist = t;
+  }
+
+  unlock() {
+    this.engine.unlock();
   }
 
   stop() {
@@ -193,6 +199,10 @@ export class SpotifySnippetPlayer implements SnippetPlayer {
 
   setTwist() {
     /* the Spotify SDK can't apply effects */
+  }
+
+  unlock() {
+    this.sp.activate();
   }
 
   dispose() {

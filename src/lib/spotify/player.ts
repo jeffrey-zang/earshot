@@ -125,19 +125,30 @@ export class SpotifyFullTrackPlayer {
       }
     });
     await player.resume();
-    // Some SDK versions don't emit a state change on resume; fall back to a short delay.
-    setTimeout(() => {
-      if (!started) {
-        started = true;
-        off();
-        onStart();
-        this.stopTimer = setTimeout(async () => {
-          this.stopTimer = null;
-          await player.pause();
-          onEnd();
-        }, lengthMs);
+    // Some SDK versions don't emit a state change on resume: check the real state before
+    // assuming playback started, so a silent failure doesn't look like it's playing.
+    setTimeout(async () => {
+      if (started) return;
+      const state = await player.getCurrentState().catch(() => null);
+      if (started) return;
+      started = true;
+      off();
+      if (!state || state.paused) {
+        onEnd();
+        return;
       }
-    }, 400);
+      onStart();
+      this.stopTimer = setTimeout(async () => {
+        this.stopTimer = null;
+        await player.pause();
+        onEnd();
+      }, lengthMs);
+    }, 1200);
+  }
+
+  /** Safari and mobile browsers need this called from a user gesture before audio can play. */
+  activate() {
+    this.player?.activateElement().catch(() => {});
   }
 
   stop() {

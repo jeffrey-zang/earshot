@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AnswerField, GameSettings, Guess, RoundResult, Track } from "@/lib/types";
 import type { SnippetPlayer } from "@/lib/player";
-import type { ActiveTwist } from "@/lib/audio";
+import { isIOS, type ActiveTwist } from "@/lib/audio";
 import { pointsFor, formatSeconds } from "@/lib/scoring";
 import { cleanTitle } from "@/lib/text";
 import { rng } from "@/lib/random";
@@ -123,8 +123,19 @@ export function usePlayback(player: SnippetPlayer) {
     setElapsed(player.elapsed());
     rafRef.current = requestAnimationFrame(tick);
   }, [player]);
+  // Safari only starts audio from a user gesture: unlock on every tap/keypress during the game.
+  useEffect(() => {
+    const unlock = () => player.unlock();
+    window.addEventListener("pointerdown", unlock, true);
+    window.addEventListener("keydown", unlock, true);
+    return () => {
+      window.removeEventListener("pointerdown", unlock, true);
+      window.removeEventListener("keydown", unlock, true);
+    };
+  }, [player]);
   const play = useCallback(
     async (seconds: number) => {
+      player.unlock();
       cancel();
       setPlaying(true);
       setError(null);
@@ -357,6 +368,8 @@ export function Game({ source, player, settings, totalRounds, seed, playlistOpti
   const openCount = round ? round.fields.filter((f) => f.status === "open").length : 0;
   const potential = round ? pointsFor(steps[round.step], settings) - (multi ? 0 : penalties) : 0;
   const roundNo = Math.min((round?.index ?? 0) + 1, totalRounds);
+  const [ios, setIos] = useState(false);
+  useEffect(() => setIos(isIOS()), []);
   const earliestYear = Math.min(2008, ...source.all.map((t) => (t.addedAt ? new Date(t.addedAt).getUTCFullYear() : 9999)));
 
   return (
@@ -406,6 +419,7 @@ export function Game({ source, player, settings, totalRounds, seed, playlistOpti
             <Kbd>Space</Kbd>
           </button>
           {audioError && <p className="mt-2 text-sm text-error">{audioError}</p>}
+          {ios && round.index === 0 && round.guesses.length === 0 && <p className="mt-2 text-center text-[13px] text-ink-2">No sound? Turn the volume up and check the ring/silent switch.</p>}
 
           {multi ? (
             <AnswerSheet

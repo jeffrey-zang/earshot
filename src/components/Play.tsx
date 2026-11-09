@@ -14,6 +14,7 @@ import { Pool } from "@/lib/pool";
 import { decodeChallenge, loadChallengeTracks, type Challenge } from "@/lib/challenge";
 import { PreviewSnippetPlayer, SpotifySnippetPlayer, type SnippetPlayer } from "@/lib/player";
 import { PLAYBACK_SCOPES, hasScopes } from "@/lib/spotify/auth";
+import { isIOS } from "@/lib/audio";
 import { Game, type TrackSource } from "./Game";
 import { Results } from "./Results";
 import { Button, Logo, Spinner } from "./ui";
@@ -34,6 +35,9 @@ class FixedSource implements TrackSource {
 
 function makePlayer(settings: GameSettings): { player: SnippetPlayer; note?: string } {
   // higher-or-lower flips between two songs, which full-track playback can't do quickly
+  if (settings.engine === "spotify" && isIOS()) {
+    return { player: new PreviewSnippetPlayer(settings), note: "Spotify's full-track player doesn't work on iPhone or iPad, so this game uses 30s previews." };
+  }
   if (settings.engine === "spotify" && settings.mode !== "higherlower") {
     if (hasScopes(PLAYBACK_SCOPES)) return { player: new SpotifySnippetPlayer(settings) };
     return { player: new PreviewSnippetPlayer(settings), note: "Full-track playback needs a Spotify Premium login with playback allowed, so this game uses previews." };

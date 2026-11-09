@@ -1,6 +1,17 @@
 import type { StartMode, Twist } from "./types";
 
 export type ActiveTwist = Exclude<Twist, "random">;
+
+// 50ms of silence. Playing it from an <audio> element during a tap moves iOS into the "playback"
+// audio category, so Web Audio is heard even with the ring/silent switch on (older iOS).
+const SILENT_WAV = "data:audio/wav;base64,UklGRrQBAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YZABAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICA";
+
+export function isIOS(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+}
+
+let htmlUnlocked = false;
 const RATE: Record<ActiveTwist, number> = { none: 1, reverse: 1, fast: 1.5, slow: 0.7, muffled: 1 };
 
 /**
@@ -39,6 +50,43 @@ export class PreviewEngine {
       this.gain.connect(this.ctx.destination);
     }
     return this.ctx;
+  }
+
+  /**
+   * Must run synchronously inside a tap/click/keypress. Safari only lets audio start from a user
+   * gesture, and iOS mutes Web Audio in silent mode unless the session is set to "playback".
+   */
+  unlock() {
+    const ctx = this.context();
+    try {
+      const session = (navigator as Navigator & { audioSession?: { type: string } }).audioSession;
+      if (session) session.type = "playback";
+    } catch {
+      /* not supported */
+    }
+    if (ctx.state !== "running") ctx.resume().catch(() => {});
+    if (!htmlUnlocked && isIOS()) {
+      htmlUnlocked = true;
+      try {
+        const el = new Audio(SILENT_WAV);
+        el.setAttribute("playsinline", "");
+        el.play().catch(() => {
+          htmlUnlocked = false;
+        });
+      } catch {
+        htmlUnlocked = false;
+      }
+    }
+    try {
+      // a one-sample buffer, started in the gesture, fully wakes WebKit's audio output
+      const b = ctx.createBuffer(1, 1, ctx.sampleRate);
+      const src = ctx.createBufferSource();
+      src.buffer = b;
+      src.connect(ctx.destination);
+      src.start(0);
+    } catch {
+      /* ignore */
+    }
   }
 
   /** Download + decode a preview into memory. Separate from play() so playback starts instantly. */

@@ -272,6 +272,10 @@ function LinkTab({ add }: { add: (s: SourceSpec) => void }) {
       </form>
       {msg && <p className={cx("mt-2 text-sm", msg.ok ? "text-ink" : "text-error")}>{msg.text}</p>}
       <p className="mt-3 text-sm text-ink-2">Links read without a login include up to 100 songs per playlist and an artist&apos;s top songs.</p>
+      <p className="mt-2 text-sm text-ink-2">
+        <span className="font-semibold text-ink">Tip:</span> Spotify&apos;s own mixes of what you play most work too. In the Spotify app, open <span className="font-semibold text-ink">On Repeat</span>,{" "}
+        <span className="font-semibold text-ink">Repeat Rewind</span>, a <span className="font-semibold text-ink">Daily Mix</span> or <span className="font-semibold text-ink">Your Top Songs</span>, tap Share, Copy link, and paste it here.
+      </p>
     </div>
   );
 }
