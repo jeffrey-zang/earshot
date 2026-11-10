@@ -31,6 +31,12 @@ export interface Track {
   addedAt?: string;
   /** Names of the playlists in this game that contain the song. */
   playlists?: string[];
+  /** Spotify streams in millions (built-in pool only). */
+  streams?: number;
+  /** Sung in a language other than English (built-in pool only). */
+  foreign?: boolean;
+  /** Which stage of a run it was picked for: 0 Easy to 4 Brutal (built-in pool only). */
+  stage?: number;
   /** Deezer popularity rank (higher is more popular). */
   rank?: number;
   /** Last.fm play counts, fetched when a mode needs them. */
@@ -118,12 +124,18 @@ export interface Filters {
   excludeExplicit: boolean;
   excludeVersions: boolean;
   maxPerArtist: number;
+  /** Built-in pool only: leave out songs with fewer Spotify streams than this, in millions ("Hits only"). */
+  minStreams: number | null;
+  /** Built-in pool only: English songs only. */
+  englishOnly: boolean;
 }
 
 export interface GameConfig {
   sources: SourceSpec[];
   filters: Filters;
   settings: GameSettings;
+  /** Which game this is, for keeping a best score per game: a preset id, "custom" or "challenge". */
+  category?: string;
 }
 
 export interface Guess {

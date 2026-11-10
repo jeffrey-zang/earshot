@@ -112,9 +112,25 @@ export async function getTopTracks(range: TimeRange): Promise<Track[]> {
   return items.map((t) => spToTrack(t, `Top tracks (${RANGE_LABEL[range]})`)).filter((t): t is Track => !!t);
 }
 
+/**
+ * About the last 100 different songs you played. Spotify's play history stops at your last 50
+ * plays, so the rest comes from what you've played most in the last 4 weeks.
+ */
 export async function getRecentTracks(): Promise<Track[]> {
+  const out = new Map<string, Track>();
   const page = await sp<Page<{ track: SpTrack }>>("/me/player/recently-played?limit=50");
-  return page.items.map((i) => spToTrack(i.track, "Recently played")).filter((t): t is Track => !!t);
+  for (const item of page.items) {
+    const t = spToTrack(item.track, "Recently played");
+    if (t && !out.has(t.key)) out.set(t.key, t);
+  }
+  if (out.size < 100) {
+    const top = await collect<SpTrack>("/me/top/tracks?limit=50&time_range=short_term", undefined, 100).catch(() => [] as SpTrack[]);
+    for (const item of top) {
+      const t = spToTrack(item, "Recently played");
+      if (t && !out.has(t.key) && out.size < 100) out.set(t.key, t);
+    }
+  }
+  return [...out.values()];
 }
 
 export async function getMyPlaylists(): Promise<SpPlaylist[]> {

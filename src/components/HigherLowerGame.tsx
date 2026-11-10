@@ -8,8 +8,9 @@ import { ensureExtras, metricValue } from "@/lib/extras";
 import { HL_INFO, formatCount, formatMonth } from "@/lib/modes";
 import { cleanTitle } from "@/lib/text";
 import { GameHeader, PlayGlyph, StopGlyph, usePlayback, type TrackSource } from "./Game";
-import { Kbd, Spinner, cx } from "./ui";
-import { ShortcutHelp, useShortcuts, type Shortcut } from "./Shortcuts";
+import { Button, cx } from "./ui";
+import { ShortcutHelp, modKey, useShortcuts, type Shortcut } from "./Shortcuts";
+import { LoadingNotes } from "./StatusScreen";
 
 const POINTS = 100;
 
@@ -128,6 +129,7 @@ export function HigherLowerGame({ source, player, settings, totalRounds, seed, b
     { keys: [" ", "b"], display: "Space / B", label: "Hear the new song", run: () => b && hear(b), enabled: ready },
     { keys: ["a"], display: "A", label: "Hear the first song", run: () => a && hear(a), enabled: ready },
     { keys: ["Enter"], display: "Enter", label: "Next song", run: next, enabled: ready && !!revealed },
+    { keys: ["Enter"], mod: true, display: `${modKey()} Enter`, label: "Next song", run: next, enabled: ready && !!revealed, hidden: true },
   ];
   const { help, setHelp } = useShortcuts(shortcuts);
 
@@ -137,94 +139,132 @@ export function HigherLowerGame({ source, player, settings, totalRounds, seed, b
     return n;
   })();
 
+
+  const isEnd = lives <= 0 || results.length >= totalRounds;
+  const nextButton = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (revealed) nextButton.current?.focus({ preventScroll: true });
+  }, [revealed]);
+
   return (
-    <div className="mx-auto flex min-h-dvh max-w-xl flex-col px-5 pb-5 tabular">
+    <div className="flex min-h-dvh flex-col px-5 pb-6 sm:px-10 tabular">
       <GameHeader onQuit={onQuit} roundNo={results.length + (revealed ? 0 : 1)} totalRounds={totalRounds} score={score} done={results.length} current={!revealed} playing={playing} label="Pick" endless={settings.rounds === 0} />
       <ShortcutHelp open={help} onClose={() => setHelp(false)} shortcuts={shortcuts} />
-      {banner}
-      {loading || !a || !b ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-2 text-ink-2">
-          <span className="text-[15px]">
-            Lining up songs <Spinner />
-          </span>
-        </div>
-      ) : (
-        <div className="flex flex-1 flex-col">
-          <section className="flex items-end justify-between gap-3 pt-6">
-            <div>
-              <div className="text-[15px] text-ink-2">Streak</div>
-              <div className="numeral text-[88px] leading-[0.85]">{streak}</div>
-            </div>
-            <div className="pb-1 text-right text-[15px] text-ink-2">
-              {settings.hlLives > 1 && (
-                <div>
-                  {lives} {lives === 1 ? "life" : "lives"} left
-                </div>
-              )}
-              <div>{info.label}</div>
-            </div>
-          </section>
-
-          <SongRow t={a} value={formatMetric(a, settings)} unit={UNIT[settings.hlMetric]} playing={playingKey === a.key} onHear={() => hear(a)} />
-          <p className="mt-5 text-[22px] font-bold leading-tight tracking-tight">{info.question}</p>
-          <SongRow
-            t={b}
-            value={revealed ? formatMetric(b, settings) : "?"}
-            unit={UNIT[settings.hlMetric]}
-            playing={playingKey === b.key}
-            onHear={() => hear(b)}
-            verdict={revealed ? (revealed.correct ? "right" : "wrong") : undefined}
-          />
-
-          <div className="min-h-6 flex-1" />
-          <p className="mb-2 hidden text-center text-[13px] text-ink-3 sm:block">
-            Arrows choose · Space or B hears the new song, A the first ·{" "}
-            <button type="button" onClick={() => setHelp(true)} className="underline decoration-rule-strong underline-offset-2 hover:text-ink">
-              ? all shortcuts
-            </button>
-          </p>
-          {!revealed ? (
-            <div className="grid grid-cols-2 gap-2">
-              <button type="button" onClick={() => choose("lower")} className="flex h-16 items-center justify-center gap-2 border-2 border-ink text-[17px] font-bold hover:bg-paper-2">
-                {info.lower} <Kbd>←</Kbd>
-              </button>
-              <button type="button" onClick={() => choose("higher")} className="flex h-16 items-center justify-center gap-2 bg-ink text-[17px] font-bold text-paper hover:bg-black">
-                {info.higher} <Kbd>→</Kbd>
-              </button>
-            </div>
-          ) : (
-            <>
-              <p className={cx("mb-2 text-[17px] font-semibold", !revealed.correct && "text-error")}>
-                {revealed.correct ? "Right." : lives > 0 ? `Wrong. ${lives} ${lives === 1 ? "life" : "lives"} left.` : "Wrong. That's the end of the run."}
+      <main className="mx-auto flex w-full max-w-[952px] flex-1 flex-col">
+        {banner}
+        {loading || !a || !b ? (
+          <div className="flex flex-1 items-center justify-center pb-24">
+            <LoadingNotes message="Lining up songs" />
+          </div>
+        ) : (
+          <div className="flex flex-1 flex-col justify-center pb-10 pt-4 sm:pb-14">
+            <section className="text-center">
+              <p className="hand text-[72px] leading-[0.95] sm:text-[96px]">
+                <span className="sr-only">Streak </span>
+                {streak}
               </p>
-              <button type="button" onClick={next} className="flex h-14 items-center justify-between bg-ink px-5 text-[17px] font-bold text-paper hover:bg-black">
-                {lives <= 0 || results.length >= totalRounds ? "See results" : "Next song"}
-                <Kbd>Enter</Kbd>
-              </button>
-            </>
-          )}
-        </div>
-      )}
+              <p className="mt-1 text-[15px] text-ink-3">
+                Streak
+                {settings.hlLives > 1 && ` · ${lives} ${lives === 1 ? "life" : "lives"}`}
+              </p>
+            </section>
+
+            <div className="mt-8 grid gap-5 sm:mt-10 sm:grid-cols-2 sm:gap-12">
+              <SongCard t={a} value={formatMetric(a, settings)} unit={UNIT[settings.hlMetric]} playing={playingKey === a.key} onHear={() => hear(a)} />
+              <SongCard
+                t={b}
+                value={revealed ? formatMetric(b, settings) : "?"}
+                unit={UNIT[settings.hlMetric]}
+                playing={playingKey === b.key}
+                onHear={() => hear(b)}
+                verdict={revealed ? (revealed.correct ? "right" : "wrong") : undefined}
+              />
+            </div>
+
+            <h2 className="hand mt-8 text-center text-[32px] leading-tight sm:mt-10 sm:text-[40px]">{info.question}</h2>
+            <div className="mx-auto mt-5 grid w-full max-w-[520px] grid-cols-2 gap-3">
+              <ChoicePill label={info.lower} state={pillState("lower", revealed)} onClick={() => choose("lower")} />
+              <ChoicePill label={info.higher} state={pillState("higher", revealed)} onClick={() => choose("higher")} />
+            </div>
+            <p className="sr-only" aria-live="polite">
+              {revealed ? (revealed.correct ? "Right" : lives > 0 ? `Wrong. ${lives} ${lives === 1 ? "life" : "lives"} left.` : "Wrong. That's the end of the run.") : ""}
+            </p>
+            <div className="mt-5 flex min-h-14 justify-center">
+              {revealed && (
+                <Button
+                  ref={nextButton}
+                  variant="primary"
+                  onClick={next}
+                  onKeyDown={(e) => {
+                    // Space plays the new song on this screen, even with Next focused; ignore held-down Enter.
+                    if (e.key === " ") {
+                      e.preventDefault();
+                      if (!e.repeat) hear(b);
+                    } else if (e.key === "Enter" && e.repeat) e.preventDefault();
+                  }}
+                  onKeyUp={(e) => e.key === " " && e.preventDefault()}
+                >
+                  {isEnd ? "See results" : "Next song"}
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+      </main>
     </div>
   );
 }
 
-function SongRow({ t, value, unit, playing, onHear, verdict }: { t: Track; value: string; unit: string; playing: boolean; onHear: () => void; verdict?: "right" | "wrong" }) {
+type PillState = "idle" | "right" | "wrong" | "off";
+
+/** After a pick: yours goes blue if right, red if wrong (and then the other one goes blue). */
+function pillState(choice: "higher" | "lower", revealed: { correct: boolean; choice: "higher" | "lower" } | null): PillState {
+  if (!revealed) return "idle";
+  if (revealed.choice === choice) return revealed.correct ? "right" : "wrong";
+  return revealed.correct ? "off" : "right";
+}
+
+function ChoicePill({ label, state, onClick }: { label: string; state: PillState; onClick: () => void }) {
   return (
-    <article className="mt-4 grid grid-cols-[72px_minmax(0,1fr)_auto] items-center gap-3 border-t-2 border-ink pt-4">
-      <button type="button" onClick={onHear} aria-label={playing ? "Stop" : `Hear ${cleanTitle(t.title)}`} className="group relative aspect-square w-full">
-        {t.image ? <img src={t.image} alt="" className="h-full w-full object-cover" /> : <span className="block h-full w-full bg-paper-2" />}
-        <span className={cx("absolute inset-0 flex items-center justify-center text-white transition-colors", playing ? "bg-signal/80" : "bg-ink/0 group-hover:bg-ink/50")}>
-          <span className={cx(playing ? "opacity-100" : "opacity-0 group-hover:opacity-100")}>{playing ? <StopGlyph /> : <PlayGlyph />}</span>
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={state !== "idle"}
+      className={cx(
+        "flex min-h-16 items-center justify-center rounded-full border-2 px-5 text-[18px] font-semibold transition-[background-color,border-color,color,opacity,transform] sm:text-[19px]",
+        state === "idle" && "border-ink text-ink hover:bg-card active:scale-[0.98]",
+        state === "right" && "border-blue bg-blue text-paper",
+        state === "wrong" && "border-red bg-red text-paper",
+        state === "off" && "border-rule-strong text-ink-3",
+      )}
+    >
+      {label}
+    </button>
+  );
+}
+
+function SongCard({ t, value, unit, playing, onHear, verdict }: { t: Track; value: string; unit: string; playing: boolean; onHear: () => void; verdict?: "right" | "wrong" }) {
+  const title = cleanTitle(t.title);
+  return (
+    <article className="grid grid-cols-[76px_minmax(0,1fr)_auto] items-center gap-4 sm:flex sm:flex-col sm:items-center sm:gap-0 sm:text-center">
+      <button type="button" onClick={onHear} aria-label={playing ? "Stop" : `Hear ${title}`} className="group relative aspect-square w-[76px] shrink-0 rounded-[6px] sm:w-[180px]">
+        {t.image ? <img src={t.image} alt="" className="h-full w-full rounded-[6px] object-cover" /> : <span className="block h-full w-full rounded-[6px] bg-paper-2" />}
+        <span
+          className={cx(
+            "absolute bottom-1.5 left-1.5 grid h-8 w-8 place-items-center rounded-full text-paper transition-colors sm:bottom-2.5 sm:left-2.5 sm:h-11 sm:w-11",
+            playing ? "bg-blue" : "bg-ink/80 group-hover:bg-ink",
+          )}
+        >
+          {playing ? <StopGlyph /> : <PlayGlyph />}
         </span>
       </button>
-      <div className="min-w-0">
-        <div className="truncate text-[19px] font-bold leading-tight">{cleanTitle(t.title)}</div>
-        <div className="truncate text-[15px] text-ink-2">{t.artists.join(", ")}</div>
+      <div className="min-w-0 sm:mt-4 sm:w-full">
+        <div className="truncate text-[18px] font-semibold leading-tight sm:text-[20px]">{title}</div>
+        <div className="mt-0.5 truncate text-[15px] text-ink-3 sm:text-[16px]">{t.artists.join(", ")}</div>
       </div>
-      <div className="text-right">
-        <div className={cx("numeral text-[44px] leading-[0.9]", verdict === "wrong" && "text-error")}>{value}</div>
-        <div className="text-[12px] text-ink-2">{unit}</div>
+      <div className="text-right sm:mt-3 sm:text-center">
+        <div className={cx("hand text-[40px] leading-none sm:text-[56px]", verdict === "wrong" ? "text-red" : verdict === "right" ? "text-blue" : "text-ink")}>{value}</div>
+        <div className="mt-1 text-[13px] text-ink-3">{unit}</div>
       </div>
     </article>
   );

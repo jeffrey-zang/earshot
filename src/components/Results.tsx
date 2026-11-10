@@ -1,13 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { GameSettings, RoundResult } from "@/lib/types";
+import type { SnippetPlayer } from "@/lib/player";
+import { recordScore } from "@/lib/settings";
+import { rng } from "@/lib/random";
 import { formatSeconds } from "@/lib/scoring";
 import { cleanTitle } from "@/lib/text";
 import { canShare, encodeChallenge, makeChallenge } from "@/lib/challenge";
 import { FIELD_INFO, HL_INFO, describeMode, formatCount, formatMonth } from "@/lib/modes";
-import { Button, Kbd, Logo, cx } from "./ui";
-import { ShortcutHelp, useShortcuts, type Shortcut } from "./Shortcuts";
+import { Button, cx } from "./ui";
+import { ShortcutHelp, modKey, useShortcuts, type Shortcut } from "./Shortcuts";
+import { Rolling } from "./motion";
+import { WordmarkHeader } from "./StatusScreen";
 
 interface Props {
   results: RoundResult[];
@@ -17,22 +22,36 @@ interface Props {
   challengeScore?: number;
   onReplay: () => void;
   onNewGame: () => void;
+  /** The game's player, still unlocked, for playing your best song under the results. */
+  player?: SnippetPlayer;
+  /** Which game this was, for the best score. */
+  category?: string;
 }
 
-const signed = (n: number) => `${n > 0 ? "+" : n < 0 ? "−" : ""}${Math.abs(n).toLocaleString()}`;
+/** Faded ink for missed rounds. */
+const FADED = "text-[#a39e93]";
 
-export function Results({ results, settings, seed, note, challengeScore, onReplay, onNewGame }: Props) {
+/** Petaluma has no U+2212 minus, so hand-lettered negatives use a hyphen. */
+const handNumber = (n: number) => (n < 0 ? `-${Math.abs(n).toLocaleString()}` : n.toLocaleString());
+
+/** Rough width of a number set in Petaluma, in ems. */
+function handWidth(s: string) {
+  let w = 0;
+  for (const c of s) w += c === "," || c === "." ? 0.21 : c === "1" ? 0.29 : c === "-" ? 0.42 : 0.61;
+  return Math.max(w, 0.61);
+}
+
+export function Results({ results, settings, seed, note, challengeScore, onReplay, onNewGame, player, category }: Props) {
   const total = results.reduce((a, r) => a + r.points, 0);
+  const best = useBestScore(category, settings.mode === "higherlower" ? results.reduce((acc, r) => (r.solved ? { cur: acc.cur + 1, max: Math.max(acc.max, acc.cur + 1) } : { cur: 0, max: acc.max }), { cur: 0, max: 0 }).max : total, results.length > 0);
+  const { playingIndex, toggle: toggleSong } = useBestSong(results, player, seed, settings.volume * 0.6);
   const solved = results.filter((r) => r.solved);
   const mode = settings.mode ?? "classic";
-  const perRound = mode === "classic" ? settings.maxPoints * Math.max(1, settings.fields?.length ?? 1) : mode === "lyrics" ? settings.maxPoints : 100;
-  const best = results.length * perRound;
   const titleOnly = mode === "classic" && (settings.fields?.length ?? 1) === 1 && (settings.fields?.[0] ?? "title") === "title";
   const shareable = canShare(settings);
   const longestStreak = results.reduce((acc, r) => (r.solved ? { cur: acc.cur + 1, max: Math.max(acc.max, acc.cur + 1) } : { cur: 0, max: acc.max }), { cur: 0, max: 0 }).max;
   const challengeTracks = mode === "higherlower" && results[0]?.versus ? [results[0].versus.track, ...results.map((r) => r.track)] : results.map((r) => r.track);
-  const avg = solved.length ? solved.reduce((a, r) => a + r.listened, 0) / solved.length : 0;
-  const [copied, setCopied] = useState<string | null>(null);
+  const [copied, setCopied] = useState<"link" | "text" | null>(null);
 
   const challengeUrl = () => `${window.location.origin}/play?c=${encodeChallenge(makeChallenge(challengeTracks, settings, seed, total))}`;
 
@@ -53,151 +72,220 @@ export function Results({ results, settings, seed, note, challengeScore, onRepla
 
   const shortcuts: Shortcut[] = [
     { keys: ["Enter", "r"], display: "Enter / R", label: "Play again", run: onReplay },
+    { keys: ["Enter"], mod: true, typing: true, display: `${modKey()} Enter`, label: "Play again", run: onReplay, hidden: true },
     { keys: ["n"], display: "N", label: "New game", run: onNewGame },
     { keys: ["s"], display: "S", label: "Copy your score to share", run: () => copy("text"), enabled: results.length > 0 },
     { keys: ["c"], display: "C", label: "Copy the challenge link", run: () => copy("link"), enabled: shareable && results.length > 0 },
   ];
   const { help, setHelp } = useShortcuts(shortcuts);
 
-  const verdict =
+  const versus =
     challengeScore == null
       ? null
       : total > challengeScore
-        ? `You beat ${challengeScore.toLocaleString()} by ${(total - challengeScore).toLocaleString()}`
+        ? { text: `Beat ${challengeScore.toLocaleString()} by ${(total - challengeScore).toLocaleString()}`, className: "text-blue" }
         : total === challengeScore
-          ? `Dead even with ${challengeScore.toLocaleString()}`
-          : `${(challengeScore - total).toLocaleString()} short of ${challengeScore.toLocaleString()}`;
+          ? { text: `Tied ${challengeScore.toLocaleString()}`, className: "text-ink-2" }
+          : { text: `${(challengeScore - total).toLocaleString()} short of ${challengeScore.toLocaleString()}`, className: "text-red" };
+
+  const totalText = handNumber(total);
+  const em = handWidth(totalText);
 
   return (
-    <div className="mx-auto max-w-xl px-5 pb-16 tabular">
+    <div className="flex min-h-dvh flex-col tabular">
       <ShortcutHelp open={help} onClose={() => setHelp(false)} shortcuts={shortcuts} />
-      <header className="flex h-14 items-center justify-between">
-        <Logo className="text-lg" />
-        <span className="text-sm text-ink-2">
-          {results.length} round{results.length === 1 ? "" : "s"}
-        </span>
-      </header>
+      <WordmarkHeader />
+      <main className="flex flex-1 items-center justify-center px-6 pb-6 pt-1 sm:px-14 sm:pb-14 sm:pt-8 lg:pb-20">
+        <div className={cx("grid w-full items-center gap-x-16 gap-y-3 sm:gap-y-12", results.length ? "max-w-[1150px] lg:grid-cols-[minmax(0,440px)_minmax(0,600px)] lg:justify-between" : "max-w-[440px]")}>
+          <section className="animate-rise min-w-0" aria-live="polite">
+            <h1
+              className={cx("hand whitespace-nowrap leading-[0.95]", total < 0 ? "text-red" : "text-ink")}
+              style={{ fontSize: `min(160px, ${Math.floor(420 / em)}px, calc((100vw - 48px) / ${em.toFixed(2)}), 16dvh)` }}
+            >
+              <span className="sr-only">Score </span>
+              <Rolling value={total} from={0} delay={150} duration={1100} format={handNumber} bump="" />
+            </h1>
+            {best && (
+              <p style={{ animationDelay: "1100ms" }} className={cx("rise-in mt-1 text-[16px] font-semibold uppercase tracking-[0.12em]", best.isNew ? "text-blue" : "text-ink-3")}>
+                {best.isNew ? (best.before == null ? "First score" : "New best") : `Best ${best.value.toLocaleString()}`}
+              </p>
+            )}
+            {versus && <p className={cx("mt-2 text-[20px] font-semibold", versus.className)}>{versus.text}</p>}
+            {note && <p className="mt-2 text-[15px] text-ink-3">{note}</p>}
+            <div className="mt-5 flex flex-wrap gap-3 sm:mt-8">
+              <Button variant="primary" autoFocus onClick={onReplay}>
+                Play again
+              </Button>
+              <Button className="min-h-14 px-7 text-[18px]" onClick={onNewGame}>
+                New game
+              </Button>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-x-7">
+              <Button variant="text" className="text-[17px] font-medium!" onClick={() => copy("text")} disabled={!results.length}>
+                {copied === "text" ? "Copied" : "Share score"}
+              </Button>
+              {shareable && (
+                <Button variant="text" className="text-[17px] font-medium!" onClick={() => copy("link")} disabled={!results.length}>
+                  {copied === "link" ? "Copied" : "Copy challenge link"}
+                </Button>
+              )}
+            </div>
+          </section>
 
-      <section className="animate-rise pt-5" aria-live="polite">
-        <div className="text-[15px] text-ink-2">Final score</div>
-        <div className={cx("numeral text-[120px] leading-[0.85] sm:text-[152px]", total < 0 && "text-error")}>{total < 0 ? `−${Math.abs(total).toLocaleString()}` : total.toLocaleString()}</div>
-        <p className="mt-3 text-[15px] text-ink-2">
-          <span className="font-semibold text-ink">{describeMode(settings)}</span>
-          {" · "}
-          {mode === "higherlower" ? (
-            <>
-              {solved.length} of {results.length} right · best run {longestStreak}
-            </>
-          ) : mode === "lyrics" ? (
-            <>
-              {solved.length} of {results.length} word for word · {Math.round((Math.max(0, total) / Math.max(1, best)) * 100)}% of max
-            </>
-          ) : (
-            <>
-              {solved.length} of {results.length} {titleOnly ? "named" : "fully right"}
-              {titleOnly && solved.length > 0 && ` · ${formatSeconds(avg)} average`} · {Math.round((Math.max(0, total) / Math.max(1, best)) * 100)}% of max
-            </>
-          )}
-        </p>
-        {verdict && <p className="mt-3 inline-block border-2 border-ink px-2.5 py-1 text-sm font-semibold">{verdict}</p>}
-        {note && <p className="mt-3 text-sm text-ink-2">{note}</p>}
-      </section>
-
-      {mode !== "higherlower" && results.some((r) => r.points > 0) && results.length <= 50 && <PointsChart results={results} max={perRound} />}
-
-      <div className="mt-6 grid grid-cols-2 gap-2">
-        <Button variant="primary" className="h-[52px] text-base" onClick={onReplay}>
-          Play again <Kbd>Enter</Kbd>
-        </Button>
-        <Button className="h-[52px] text-base" onClick={onNewGame}>
-          New game <Kbd>N</Kbd>
-        </Button>
-      </div>
-      <div className="mt-1 flex justify-between gap-2">
-        <Button variant="text" onClick={() => copy("text")} disabled={!results.length}>
-          {copied === "text" ? "Copied" : "Share score"} <Kbd>S</Kbd>
-        </Button>
-        {shareable && (
-          <Button variant="text" onClick={() => copy("link")} disabled={!results.length}>
-            {copied === "link" ? "Copied" : "Copy challenge link"} <Kbd>C</Kbd>
-          </Button>
-        )}
-      </div>
-      <p className="text-sm text-ink-2">
-        {shareable ? "A challenge link lets anyone play these exact songs, no Spotify login needed." : "Questions about your own library can't be shared as a challenge."}
-      </p>
-
-      <ol className="mt-6 border-t-2 border-ink">
-        {results.map((r, i) => (
-          <li key={i} className="grid grid-cols-[24px_44px_minmax(0,1fr)_auto] items-center gap-3 border-b border-rule py-2.5">
-            <span className="text-[13px] font-semibold text-ink-3 condensed">{String(i + 1).padStart(2, "0")}</span>
-            {r.track.image ? <img src={r.track.image} alt="" className="h-11 w-11 object-cover" /> : <span className="h-11 w-11 bg-paper-2" />}
-            <span className="min-w-0">
-              <span className={cx("block truncate text-[15px] font-semibold", !r.solved && "text-ink-2")}>{cleanTitle(r.track.title)}</span>
-              <span className="block truncate text-[13px] text-ink-2">
-                {r.track.artists.join(", ")}
-                {r.track.year ? ` · ${r.track.year}` : ""}
-              </span>
-              <RowDetail r={r} />
-            </span>
-            <span className="text-right">
-              <span className={cx("block text-[15px] font-bold", r.points < 0 ? "text-error" : r.points === 0 && "text-ink-2")}>{signed(r.points)}</span>
-              <span className="block text-xs text-ink-2">
-                {r.versus ? (r.solved ? "right" : "wrong") : r.lyric ? `${Math.round(r.lyric.similarity * 100)}%` : r.fields && !titleOnly ? `${r.fields.filter((f) => f.outcome === "right").length}/${r.fields.length}` : r.solved ? formatSeconds(r.listened) : "missed"}
-              </span>
-            </span>
-          </li>
-        ))}
-      </ol>
+          {results.length > 0 && <RoundList results={results} titleOnly={titleOnly} playingIndex={playingIndex} onToggle={toggleSong} />}
+        </div>
+      </main>
     </div>
   );
 }
 
-/** One bar per round: height is points, labels are how much audio it took. */
-function PointsChart({ results, max }: { results: RoundResult[]; max: number }) {
-  const dense = results.length > 15;
+/** One row per round. On wide screens a long game scrolls inside the column. */
+function RoundList({ results, titleOnly, playingIndex, onToggle }: { results: RoundResult[]; titleOnly: boolean; playingIndex: number | null; onToggle: (i: number) => void }) {
+  const ref = useRef<HTMLOListElement>(null);
+  const [scrolls, setScrolls] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const check = () => setScrolls(el.scrollHeight > el.clientHeight + 1);
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [results.length]);
+
   return (
-    <figure className="mt-6">
-      <div className="grid h-24 items-end gap-1 border-b-2 border-ink" style={{ gridTemplateColumns: `repeat(${results.length}, minmax(0, 1fr))` }}>
-        {results.map((r, i) => (
-          <span
-            key={i}
-            title={`Round ${i + 1}: ${signed(r.points)}`}
-            className={r.points > 0 ? "bg-ink" : "bg-tick"}
-            style={{ height: r.points > 0 ? `${Math.max(4, (r.points / max) * 100)}%` : "2px" }}
-          />
-        ))}
-      </div>
-      {!dense && (
-        <div className="mt-1 grid gap-1 text-center text-[11px] font-semibold text-ink-3 condensed" style={{ gridTemplateColumns: `repeat(${results.length}, minmax(0, 1fr))` }} aria-hidden>
-          {results.map((r, i) => (
-            <span key={i}>{r.solved ? formatSeconds(r.listened).replace(/s$/, "") : "—"}</span>
-          ))}
-        </div>
-      )}
-      <figcaption className="sr-only">Points per round</figcaption>
-    </figure>
+    <ol
+      ref={ref}
+      aria-label="Rounds"
+      tabIndex={scrolls ? 0 : undefined}
+      className="min-w-0 lg:max-h-[min(640px,calc(100dvh-210px))] lg:overflow-y-auto lg:overscroll-contain lg:[scrollbar-gutter:stable]"
+    >
+      {results.map((r, i) => (
+        <RoundRow key={i} r={r} titleOnly={titleOnly} delay={200 + i * 70} playing={playingIndex === i} onToggle={() => onToggle(i)} />
+      ))}
+    </ol>
   );
 }
 
-/** Mode-specific line under each result row. */
-function RowDetail({ r }: { r: RoundResult }) {
+function RoundRow({ r, titleOnly, delay, playing, onToggle }: { r: RoundResult; titleOnly: boolean; delay: number; playing: boolean; onToggle: () => void }) {
+  const missed = !r.solved && r.points <= 0;
+  const status = rowStatus(r, titleOnly, missed);
+  const detail = rowDetail(r);
+  return (
+    <li style={{ animationDelay: `${delay}ms` }} className="rise-in grid grid-cols-[44px_minmax(0,1fr)_auto_auto] items-center gap-x-3.5 border-t border-rule py-2 first:border-t-0 sm:grid-cols-[60px_minmax(0,1fr)_auto_minmax(88px,auto)] sm:gap-x-[18px] sm:py-[15px]">
+      <button type="button" onClick={onToggle} aria-label={playing ? `Stop ${cleanTitle(r.track.title)}` : `Play ${cleanTitle(r.track.title)}`} className="relative block aspect-square w-full overflow-hidden rounded-[4px]">
+        {r.track.image ? (
+          <img src={r.track.image} alt="" loading="lazy" className={cx("h-full w-full object-cover", missed && !playing && "opacity-50")} />
+        ) : (
+          <span className={cx("block h-full w-full bg-paper-2", missed && !playing && "opacity-50")} />
+        )}
+        {playing && <PlayingBars />}
+      </button>
+      <span className="min-w-0">
+        <span className={cx("block truncate text-[17px] font-semibold leading-tight sm:text-[20px]", missed ? "text-ink-3" : "text-ink")}>{cleanTitle(r.track.title)}</span>
+        <span className={cx("mt-0.5 block truncate text-[14px] sm:text-[16px]", missed ? FADED : "text-ink-3")}>{r.track.artists.join(", ")}</span>
+        {detail && <span className="mt-0.5 block truncate text-[14px] text-ink-3">{detail}</span>}
+      </span>
+      <span className={cx("text-right text-[15px] sm:text-[17px]", status.bad ? "text-red" : "text-ink-3")}>{status.text}</span>
+      <span className={cx("hand text-right text-[30px] leading-none sm:text-[34px]", r.points > 0 ? "text-blue" : r.points < 0 ? "text-red" : FADED)}>{handNumber(r.points)}</span>
+    </li>
+  );
+}
+
+/** Three bars bouncing over the cover of the song that's playing. */
+function PlayingBars() {
+  return (
+    <span className="absolute inset-0 flex items-end justify-center gap-[3px] bg-ink/45 pb-2.5" aria-hidden>
+      {[0, 1, 2].map((i) => (
+        <span key={i} className="eq-bar w-[4px] rounded-full bg-paper" style={{ animationDelay: `${i * 0.18}s` }} />
+      ))}
+    </span>
+  );
+}
+
+/** Record this game's score; returns what to say about the best score. */
+function useBestScore(category: string | undefined, score: number, played: boolean) {
+  const [best, setBest] = useState<{ value: number; before: number | null; isNew: boolean } | null>(null);
+  useEffect(() => {
+    if (!category || !played) return;
+    const before = recordScore(category, score);
+    setBest({ value: before == null ? score : Math.max(before, score), before, isNew: before == null || score > before });
+    // record once per results screen
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return best;
+}
+
+/** Plays the song you scored most on, quietly and on repeat, while the results are up. */
+function useBestSong(results: RoundResult[], player: SnippetPlayer | undefined, seed: number, volume: number) {
+  const [playingIndex, setPlayingIndex] = useState<number | null>(null);
+  const wanted = useRef<number | null>(null);
+  const start = async (i: number) => {
+    if (!player) return;
+    wanted.current = i;
+    const t = results[i].track;
+    try {
+      if (!(await player.prepare(t))) return;
+      if (wanted.current !== i) return;
+      await player.activate(t, rng(seed + i));
+      player.setTwist("none");
+      player.setVolume(volume);
+      const loop = () => {
+        if (wanted.current !== i) return;
+        if (document.hidden) return setPlayingIndex(null);
+        player.play(30, loop).catch(() => setPlayingIndex(null));
+      };
+      setPlayingIndex(i);
+      loop();
+    } catch {
+      setPlayingIndex(null);
+    }
+  };
+  const stop = () => {
+    wanted.current = null;
+    player?.stop();
+    setPlayingIndex(null);
+  };
+  useEffect(() => {
+    let top = -1;
+    results.forEach((r, i) => {
+      if (r.points > 0 && (top < 0 || r.points > results[top].points)) top = i;
+    });
+    if (top >= 0) start(top);
+    return () => {
+      wanted.current = null;
+      player?.stop();
+    };
+    // once, when the results open
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const toggle = (i: number) => {
+    player?.unlock();
+    if (playingIndex === i) stop();
+    else start(i);
+  };
+  return { playingIndex, toggle };
+}
+
+/** What sits beside the points: how much it took, or why it scored nothing. */
+function rowStatus(r: RoundResult, titleOnly: boolean, missed: boolean): { text: string; bad?: boolean } {
+  if (r.versus) return r.solved ? { text: "" } : { text: "Wrong", bad: true };
+  if (missed) return { text: "Missed", bad: true };
+  if (r.lyric) return { text: `${Math.round(r.lyric.similarity * 100)}%` };
+  if (r.fields && !titleOnly) return { text: `${r.fields.filter((f) => f.outcome === "right").length}/${r.fields.length}` };
+  return { text: r.solved ? formatSeconds(r.listened) : "" };
+}
+
+/** Mode-specific third line: the comparison, the lyric, or each answer's outcome. */
+function rowDetail(r: RoundResult): string | null {
   if (r.versus) {
     const v = r.versus;
     const fmt = (n: number) => (v.metric === "added" ? formatMonth(new Date(n).toISOString()) : v.metric === "year" ? String(n) : formatCount(n));
-    return (
-      <span className="block truncate text-[13px] text-ink-2">
-        {fmt(v.b)} vs {fmt(v.a)} · you said {v.choice === "higher" ? HL_INFO[v.metric].higher.toLowerCase() : HL_INFO[v.metric].lower.toLowerCase()}
-      </span>
-    );
+    return `${fmt(v.b)} vs ${fmt(v.a)} · you said ${(v.choice === "higher" ? HL_INFO[v.metric].higher : HL_INFO[v.metric].lower).toLowerCase()}`;
   }
-  if (r.lyric) return <span className="block truncate text-[13px] italic text-ink-2">&ldquo;{r.lyric.line}&rdquo;</span>;
+  if (r.lyric) return `“${r.lyric.line}”`;
   if (r.fields && r.fields.length > 1) {
-    return (
-      <span className="block truncate text-[13px] text-ink-2">
-        {r.fields.map((f) => `${FIELD_INFO[f.field].short} ${f.outcome === "right" ? "right" : f.outcome === "close" ? `close (${f.detail})` : "missed"}`).join(" · ")}
-      </span>
-    );
+    return r.fields.map((f) => `${FIELD_INFO[f.field].short} ${f.outcome === "right" ? "right" : f.outcome === "close" ? `close (${f.detail})` : "missed"}`).join(" · ");
   }
   return null;
 }

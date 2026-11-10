@@ -13,9 +13,9 @@ export const DEFAULT_SETTINGS: GameSettings = {
   engine: "preview",
   maxPoints: 1000,
   halfLife: 3,
-  wrongPenalty: 100,
-  wrongUnlocks: true,
-  answerScope: "any",
+  wrongPenalty: 50,
+  wrongUnlocks: false,
+  answerScope: "pool",
   strictArtist: true,
   tracksPerArtist: 10,
   volume: 0.8,
@@ -37,6 +37,8 @@ export const DEFAULT_FILTERS: Filters = {
   excludeExplicit: false,
   excludeVersions: true,
   maxPerArtist: 0,
+  minStreams: 700,
+  englishOnly: true,
 };
 
 export const DEFAULT_CONFIG: GameConfig = {
@@ -73,12 +75,31 @@ export function normalizeConfig(saved: Partial<GameConfig>): GameConfig {
     sources: Array.isArray(saved.sources) ? saved.sources : DEFAULT_CONFIG.sources,
     filters: { ...DEFAULT_FILTERS, ...saved.filters },
     settings,
+    category: typeof saved.category === "string" ? saved.category : undefined,
   };
 }
 
+const LOOP_V2_KEY = "earshot.loop.v2";
+const SCORING_V3_KEY = "earshot.scoring.v3";
+
 export function loadConfig(): GameConfig {
   const saved = read<GameConfig>(() => localStorage, CONFIG_KEY);
-  return saved ? normalizeConfig(saved) : DEFAULT_CONFIG;
+  if (!saved) return DEFAULT_CONFIG;
+  const config = normalizeConfig(saved);
+  // The free-length timeline made "wrong guesses unlock the next snippet" opt-in; switch saved configs over once.
+  if (!read<boolean>(() => localStorage, LOOP_V2_KEY)) {
+    config.settings = { ...config.settings, wrongUnlocks: false };
+    write(() => localStorage, LOOP_V2_KEY, true);
+    saveConfig(config);
+  }
+  // Songless-style defaults: a wrong guess costs 50, and answers come from the game's own songs.
+  if (!read<boolean>(() => localStorage, SCORING_V3_KEY)) {
+    const st = config.settings;
+    config.settings = { ...st, wrongPenalty: st.wrongPenalty === 100 ? 50 : st.wrongPenalty, answerScope: "pool" };
+    write(() => localStorage, SCORING_V3_KEY, true);
+    saveConfig(config);
+  }
+  return config;
 }
 
 export function saveConfig(config: GameConfig) {
@@ -89,6 +110,21 @@ export function saveConfig(config: GameConfig) {
 export function setPendingGame(config: GameConfig) {
   write(() => sessionStorage, PENDING_KEY, config);
   saveConfig(config);
+}
+
+const BEST_KEY = "earshot.best.v1";
+
+/** Best score per game (see GameConfig.category). */
+export function bestScores(): Record<string, number> {
+  return read<Record<string, number>>(() => localStorage, BEST_KEY) ?? {};
+}
+
+/** Record a finished game. Returns the best before this one, or null if there was none. */
+export function recordScore(category: string, score: number): number | null {
+  const all = bestScores();
+  const before = category in all ? all[category] : null;
+  if (before == null || score > before) write(() => localStorage, BEST_KEY, { ...all, [category]: score });
+  return before;
 }
 
 export function getPendingGame(): GameConfig | null {

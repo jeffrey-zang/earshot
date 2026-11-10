@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { completeLogin } from "@/lib/spotify/auth";
-import { Logo, Spinner } from "@/components/ui";
+import { ErrorScreen, LoadingNotes, StatusScreen } from "@/components/StatusScreen";
 
 export default function Callback() {
+  const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -19,26 +21,11 @@ export default function Callback() {
       .then((to) => window.location.replace(to || "/"))
       .catch((e: Error) => setError(e.message));
   }, []);
+
+  if (error) return <ErrorScreen title="Couldn't connect Spotify" message={error} primary={{ label: "Back", run: () => router.push("/") }} />;
   return (
-    <div className="mx-auto flex min-h-dvh max-w-xl flex-col px-5">
-      <header className="flex h-14 items-center">
-        <Logo className="text-lg" />
-      </header>
-      <div className="flex flex-1 flex-col justify-center pb-24">
-        {error ? (
-          <>
-            <h1 className="text-3xl font-bold tracking-tight">Spotify didn&apos;t connect.</h1>
-            <p className="mt-3 text-ink-2">{error}</p>
-            <a href="/" className="mt-6 font-semibold underline decoration-rule-strong underline-offset-4 hover:decoration-ink">
-              Back to Earshot
-            </a>
-          </>
-        ) : (
-          <p className="text-[15px]">
-            Connecting to Spotify <Spinner className="ml-1" />
-          </p>
-        )}
-      </div>
-    </div>
+    <StatusScreen>
+      <LoadingNotes message="Connecting Spotify" />
+    </StatusScreen>
   );
 }

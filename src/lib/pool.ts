@@ -18,6 +18,8 @@ function effectiveYear(t: Track): number | undefined {
 /** Check a track against the filters using only what we already know about it. */
 export function checkFilters(t: Track, f: Filters): Verdict {
   if (f.excludeExplicit && t.explicit) return "no";
+  if (f.minStreams && t.streams != null && t.streams < f.minStreams) return "no";
+  if (f.englishOnly && t.foreign) return "no";
   if (f.excludeVersions && isAltVersion(t.title)) return "no";
   if (f.onlyArtists.length && !artistsOverlap(t.artists, f.onlyArtists)) return "no";
   if (f.excludeArtists.length && artistsOverlap(t.artists, f.excludeArtists)) return "no";
@@ -49,8 +51,29 @@ export function modeNeeds(s: GameSettings): Needs {
   return { year: s.fields.includes("year"), album: s.fields.includes("album"), added: s.fields.includes("added"), playlist: s.fields.includes("playlist") };
 }
 
+/** A slight lean toward newer songs, and toward pop, then R&B, then hip-hop and dance. */
+const GENRE_LEAN: Partial<Record<string, number>> = { pop: 1.35, rnb: 1.2, hiphop: 1.1, dance: 1.1 };
+function lean(t: Track): number {
+  const year = t.year ?? t.decade ?? 2000;
+  const recent = 1 + 0.45 * Math.min(1, Math.max(0, (year - 1980) / 45));
+  const genre = Math.max(1, ...(t.genres ?? []).map((g) => GENRE_LEAN[g] ?? 1));
+  return recent * genre;
+}
+
+/** Random order, weighted by lean(): the next pop() is most likely a favoured song. */
+function leanShuffle(list: Track[]): Track[] {
+  return list
+    .map((t) => ({ t, k: Math.pow(Math.random(), 1 / lean(t)) }))
+    .sort((a, b) => a.k - b.k)
+    .map((x) => x.t);
+}
+
+/** A run moves through these stages, from the most streamed songs to the least (as in Songless). */
+export const STAGE_NAMES = ["Easy", "Medium", "Hard", "Expert", "Brutal"] as const;
+const STAGES = STAGE_NAMES.length;
+
 export class Pool {
-  /** Every track known so far (including expanded artists), for autocomplete. */
+  /** Every track known so far that can come up in this game (including expanded artists), for autocomplete. */
   all: Track[] = [];
   private byId = new Map<string, Track>();
   private needs: Needs;
@@ -60,6 +83,9 @@ export class Pool {
   private seen = new Set<string>();
   private used = new Set<string>();
   private perArtist = new Map<string, number>();
+  /** Songs split by stream count, most streamed first, when the whole pool has stream counts. */
+  private tiers: Track[][] | null = null;
+  private picked = 0;
   notes: string[] = [];
 
   constructor(tracks: Track[], artists: ArtistRef[], private filters: Filters, private settings: GameSettings) {
@@ -75,6 +101,28 @@ export class Pool {
       return true;
     }));
     this.queue = shuffle(this.queue);
+    // Runs of a set length get harder as they go: each stage draws from a less streamed slice of the pool.
+    const ranked = this.queue.filter((t) => t.streams);
+    if (settings.rounds > 0 && !this.artistQueue.length && ranked.length >= STAGES * 2 && ranked.length >= this.queue.length * 0.9) {
+      const sorted = [...this.queue].sort((x, y) => (y.streams ?? 0) - (x.streams ?? 0));
+      const per = Math.ceil(sorted.length / STAGES);
+      this.tiers = Array.from({ length: STAGES }, (_, i) => leanShuffle(sorted.slice(i * per, (i + 1) * per)));
+    }
+  }
+
+  /** The next song from a stage, or the nearest stage that still has songs. */
+  private fromTier(stage: number): Track | undefined {
+    const tiers = this.tiers!;
+    for (let d = 0; d < STAGES; d++) {
+      for (const i of d ? [stage + d, stage - d] : [stage]) {
+        const t = tiers[i]?.pop();
+        if (t) {
+          t.stage = stage;
+          return t;
+        }
+      }
+    }
+    return undefined;
   }
 
   private add(t: Track, enqueue = true): boolean {
@@ -90,8 +138,9 @@ export class Pool {
     }
     this.seen.add(id);
     this.byId.set(id, t);
-    this.all.push(t);
-    if (enqueue && checkFilters(t, this.filters) !== "no") this.queue.push(t);
+    const fits = checkFilters(t, this.filters) !== "no";
+    if (fits) this.all.push(t);
+    if (enqueue && fits) this.queue.push(t);
     return true;
   }
 
@@ -173,6 +222,19 @@ export class Pool {
   /** Pick the next song that passes every filter. Returns null when the pool is exhausted. */
   async next(maxChecks = 60): Promise<Track | null> {
     let checks = 0;
+    if (this.tiers) {
+      while (checks++ < maxChecks) {
+        const stage = Math.min(STAGES - 1, Math.floor((this.picked * STAGES) / Math.max(1, this.settings.rounds)));
+        const t = this.fromTier(stage);
+        if (!t) return null;
+        const ok = await this.accept(t);
+        if (ok) {
+          this.picked++;
+          return ok;
+        }
+      }
+      return null;
+    }
     while (checks < maxChecks && (this.queue.length || this.artistQueue.length)) {
       checks++;
       const artistWeight = this.artistQueue.length * this.settings.tracksPerArtist;

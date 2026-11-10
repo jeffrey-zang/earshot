@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { cx } from "./ui";
 
 export interface Shortcut {
-  /** KeyboardEvent.key values (letters lower-case), e.g. [" "], ["s"], ["ArrowLeft"]. */
+  /** KeyboardEvent.key values (letters lower-case), e.g. [" "], ["s"], ["ArrowLeft"]. Empty = listed in the overlay only. */
   keys: string[];
   /** How the key is shown in the help overlay, e.g. "Space" or "Shift Enter". */
   display: string;
@@ -14,6 +14,8 @@ export interface Shortcut {
   /** Also works while typing in an answer box. */
   typing?: boolean;
   shift?: boolean;
+  /** Needs Cmd (Mac) or Ctrl (elsewhere), e.g. Cmd/Ctrl+Enter. */
+  mod?: boolean;
   enabled?: boolean;
   /** Works but isn't listed in the overlay. */
   hidden?: boolean;
@@ -25,9 +27,15 @@ function isTyping(t: EventTarget | null): boolean {
   return el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable;
 }
 
+/** "⌘" on Apple devices, "Ctrl" elsewhere: for showing Cmd/Ctrl shortcuts. */
+export function modKey(): string {
+  if (typeof navigator === "undefined") return "Ctrl";
+  return /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent) ? "⌘" : "Ctrl";
+}
+
 /**
  * Global keyboard shortcuts for a screen. Listens in the capture phase so shortcuts like
- * Shift+Enter win over a form's own Enter-to-submit. Single keys are ignored while typing
+ * Cmd/Ctrl+Enter win over a form's own Enter-to-submit. Single keys are ignored while typing
  * unless a shortcut opts in, and Space/Enter on a focused button keep their normal meaning.
  */
 export function useShortcuts(shortcuts: Shortcut[]) {
@@ -39,25 +47,27 @@ export function useShortcuts(shortcuts: Shortcut[]) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.metaKey || e.ctrlKey || e.altKey || e.isComposing) return;
+      if (e.altKey || e.isComposing) return;
+      const mod = e.metaKey || e.ctrlKey;
       const typing = isTyping(e.target);
       if (helpRef.current) {
-        if (e.key === "Escape" || e.key === "?") {
+        if (!mod && (e.key === "Escape" || e.key === "?")) {
           e.preventDefault();
           setHelp(false);
         }
         return;
       }
-      if (e.key === "?" && !typing) {
+      if (!mod && e.key === "?" && !typing) {
         e.preventDefault();
         setHelp(true);
         return;
       }
       const el = e.target as HTMLElement | null;
-      if (!typing && (e.key === " " || e.key === "Enter") && el?.closest?.("button, a, summary, [role=option]")) return;
+      if (!mod && !typing && (e.key === " " || e.key === "Enter") && el?.closest?.("button, a, summary, [role=option]")) return;
       const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
       for (const s of ref.current) {
         if (s.enabled === false) continue;
+        if (!!s.mod !== mod) continue;
         if (typing && !s.typing) continue;
         if (!s.keys.includes(key)) continue;
         if (/^[a-z0-9 ]$|^[A-Z]/.test(key) && !!s.shift !== e.shiftKey) continue;
@@ -78,12 +88,12 @@ export function useShortcuts(shortcuts: Shortcut[]) {
 /** Key caps, e.g. "Shift Enter" -> two caps. */
 export function Keys({ display, className }: { display: string; className?: string }) {
   return (
-    <span className={cx("inline-flex flex-wrap gap-1", className)}>
+    <span className={cx("inline-flex flex-wrap items-center gap-1", className)}>
       {display.split(" / ").map((alt, i) => (
-        <span key={i} className="inline-flex gap-1">
-          {i > 0 && <span className="text-ink-3">or</span>}
+        <span key={i} className="inline-flex items-center gap-1">
+          {i > 0 && <span className="px-0.5 text-[13px] text-ink-3">or</span>}
           {alt.split(" ").map((k, j) => (
-            <kbd key={j} className="min-w-7 border border-ink bg-field px-1.5 py-0.5 text-center font-sans text-[13px] font-semibold leading-tight">
+            <kbd key={j} className="min-w-7 rounded-md border border-rule-strong bg-field px-1.5 py-0.5 text-center font-sans text-[13px] font-semibold leading-tight text-ink">
               {k}
             </kbd>
           ))}
@@ -95,27 +105,45 @@ export function Keys({ display, className }: { display: string; className?: stri
 
 export function ShortcutHelp({ open, onClose, shortcuts, title = "Keyboard shortcuts" }: { open: boolean; onClose: () => void; shortcuts: Shortcut[]; title?: string }) {
   if (!open) return null;
+  return <HelpDialog onClose={onClose} shortcuts={shortcuts} title={title} />;
+}
+
+function HelpDialog({ onClose, shortcuts, title }: { onClose: () => void; shortcuts: Shortcut[]; title: string }) {
+  const closeRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const prev = document.activeElement as HTMLElement | null;
+    closeRef.current?.focus({ preventScroll: true });
+    return () => prev?.focus?.({ preventScroll: true });
+  }, []);
   const rows = shortcuts.filter((s) => !s.hidden && s.enabled !== false);
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 px-5" onClick={onClose} role="presentation">
-      <div role="dialog" aria-modal="true" aria-label={title} className="animate-rise w-full max-w-md border-2 border-ink bg-paper p-5" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-baseline justify-between border-b-2 border-ink pb-2">
-          <h2 className="text-lg font-bold">{title}</h2>
-          <button type="button" onClick={onClose} className="text-sm text-ink-2 hover:text-ink">
-            Close <Keys display="Esc" className="ml-1" />
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/30 px-5" onClick={onClose} role="presentation">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className="animate-rise w-full max-w-md rounded-[20px] bg-paper p-6 shadow-[0_24px_60px_-16px_rgb(30_30_30/0.4)]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between gap-4">
+          <h2 className="text-[20px] font-semibold">{title}</h2>
+          <button ref={closeRef} type="button" onClick={onClose} aria-label="Close" className="-mr-2 grid h-10 w-10 place-items-center rounded-full text-ink-2 hover:bg-paper-2 hover:text-ink">
+            <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden>
+              <path d="M3 3l10 10M13 3L3 13" />
+            </svg>
           </button>
         </div>
-        <dl className="mt-2">
+        <dl className="mt-4 grid gap-y-2.5">
           {rows.map((s) => (
-            <div key={s.display + s.label} className="flex items-center justify-between gap-4 border-b border-rule py-2 text-[15px]">
-              <dt>{s.label}</dt>
+            <div key={s.display + s.label} className="flex items-center justify-between gap-4 text-[15px]">
+              <dt className="text-ink-2">{s.label}</dt>
               <dd className="shrink-0">
                 <Keys display={s.display} />
               </dd>
             </div>
           ))}
-          <div className="flex items-center justify-between gap-4 py-2 text-[15px]">
-            <dt>Show or hide this list</dt>
+          <div className="flex items-center justify-between gap-4 text-[15px]">
+            <dt className="text-ink-2">Show or hide this list</dt>
             <dd>
               <Keys display="?" />
             </dd>

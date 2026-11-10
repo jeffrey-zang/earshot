@@ -1,4 +1,4 @@
-import { artistsOverlap, normTitle } from "./text";
+import { isOtherVersion, artistsOverlap, normTitle } from "./text";
 
 export interface ItunesHit {
   trackId: number;
@@ -42,7 +42,7 @@ export async function itunesFind(title: string, artists: string[]): Promise<Itun
     if (!res.ok) return null;
     const data = (await res.json()) as { results?: ItunesResult[] };
     const nt = normTitle(title);
-    const hits = (data.results ?? []).filter((r) => normTitle(r.trackName) === nt && artistsOverlap([r.artistName], artists));
+    const hits = (data.results ?? []).filter((r) => normTitle(r.trackName) === nt && artistsOverlap([r.artistName], artists) && !isOtherVersion(`${r.trackName} ${r.collectionName ?? ""}`, title));
     if (!hits.length) return null;
     // Earliest release is the closest to the original (later ones tend to be compilations).
     hits.sort((a, b) => (a.releaseDate ?? "9999").localeCompare(b.releaseDate ?? "9999"));

@@ -91,7 +91,7 @@ export async function loadSource(s: SourceSpec, progress: (msg: string) => void)
         // The embed only lists 10 tracks; expand the artist lazily during the game for more.
         return { tracks: embedToTracks(e, e.name), artists: [{ key: `spa:${s.id}`, name: e.name, spotifyId: s.id, sourceLabel: e.name }], notes: [] };
       }
-      const notes = s.type === "playlist" && e.tracks.length >= 100 ? [`${e.name}: links without a Spotify login are limited to the first 100 songs.`] : [];
+      const notes = s.type === "playlist" && e.tracks.length >= 100 ? [`${e.name}: first 100 songs only`] : [];
       const tracks = embedToTracks(e, e.name);
       if (s.type === "playlist") for (const t of tracks) t.playlists = [e.name];
       return res(tracks, notes);
@@ -114,7 +114,7 @@ export async function loadSource(s: SourceSpec, progress: (msg: string) => void)
         const embed = await fetchEmbed("playlist", s.id);
         const tracks = embedToTracks(embed, s.name);
         for (const t of tracks) t.playlists = [s.name];
-        return res(tracks, embed.tracks.length >= 100 ? [`${s.name}: Spotify only shares the first 100 songs of playlists you don't own.`] : []);
+        return res(tracks, embed.tracks.length >= 100 ? [`${s.name}: first 100 songs only`] : []);
       }
     case "spotify-saved-albums":
       return res(await spotify.getSavedAlbumTracks(progress));

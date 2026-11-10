@@ -7,9 +7,11 @@ import { rng } from "@/lib/random";
 import { ensureExtras } from "@/lib/extras";
 import { cleanTitle } from "@/lib/text";
 import { lineShape, lineSimilarity, lyricWords, markWords, pickLine } from "@/lib/lyrics";
-import { GameHeader, PlayGlyph, StopGlyph, TrackCard, usePlayback, type TrackSource } from "./Game";
-import { Button, Kbd, Spinner, cx } from "./ui";
-import { ShortcutHelp, useShortcuts, type Shortcut } from "./Shortcuts";
+import { GameHeader, PlayGlyph, StopGlyph, usePlayback, type TrackSource } from "./Game";
+import { Button, cx } from "./ui";
+import { Rolling } from "./motion";
+import { LoadingNotes } from "./StatusScreen";
+import { ShortcutHelp, modKey, useShortcuts, type Shortcut } from "./Shortcuts";
 
 type Hint = "prev" | "first" | "shape";
 const HINT_LABEL: Record<Hint, string> = { prev: "Show the line before", first: "First word", shape: "Word lengths" };
@@ -142,88 +144,81 @@ export function LyricsGame({ source, player, settings, totalRounds, seed, banner
     { keys: ["Escape"], typing: true, display: "Esc", label: "Leave the answer box", run: () => (document.activeElement as HTMLElement | null)?.blur(), enabled: guessing },
     { keys: ["g"], display: "G", label: "Give up this line", run: () => submit(""), enabled: guessing },
     { keys: ["Enter"], display: "Enter", label: round && round.index + 1 >= totalRounds ? "See results" : "Next line", run: next, enabled: !!round && done },
+    { keys: ["Enter"], mod: true, typing: true, display: `${modKey()} Enter`, label: "Submit", run: () => text.trim() && submit(text.trim()), enabled: guessing, hidden: true },
+    { keys: ["Enter"], mod: true, display: `${modKey()} Enter`, label: round && round.index + 1 >= totalRounds ? "See results" : "Next line", run: next, enabled: !!round && done, hidden: true },
   ];
   const { help, setHelp } = useShortcuts(shortcuts);
 
   const words = lyricWords(answer);
+  const worth = Math.round(settings.maxPoints * multiplier);
+  const playLabel = round?.aligned ? `Play the ${Math.round(settings.lyricLead)}s before it` : "Play the song";
 
   return (
-    <div className="mx-auto flex min-h-dvh max-w-xl flex-col px-5 pb-5 tabular">
+    <div className="flex min-h-dvh flex-col px-5 pb-6 sm:px-10 tabular">
       <GameHeader onQuit={onQuit} roundNo={Math.min((round?.index ?? 0) + 1, totalRounds)} totalRounds={totalRounds} score={score} done={results.length} current={!!round && !done} playing={playing} label="Line" />
       <ShortcutHelp open={help} onClose={() => setHelp(false)} shortcuts={shortcuts} />
+      <main className="mx-auto flex w-full max-w-[952px] flex-1 flex-col">
       {banner}
       {loading || !round ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-2 text-ink-2">
-          <span className="text-[15px]">
-            Finding a song with lyrics <Spinner />
-          </span>
+        <div className="flex flex-1 items-center justify-center pb-24">
+          <LoadingNotes message="Finding a song with lyrics" />
         </div>
       ) : !done ? (
-        <div className="flex flex-1 flex-col">
-          <section className="pt-7">
-            <div className="text-[15px] text-ink-2">
+        <div className="flex flex-1 flex-col justify-center pb-10 pt-4 sm:pb-16">
+          <section className="text-center">
+            <p className="hand text-[88px] leading-[0.95] text-blue sm:text-[120px]">
+              <span className="sr-only">Worth </span>
+              {worth.toLocaleString()}
+              <span className="sr-only"> points</span>
+            </p>
+            <p className="mt-3 text-[17px] text-ink-3">
               {cleanTitle(round.track.title)} · {round.track.artists.join(", ")}
-            </div>
-            <h1 className="mt-1 text-[40px] font-bold leading-[1.02] tracking-tight sm:text-[52px]">What&apos;s the next line?</h1>
-            <p className="mt-2 text-[15px] text-ink-2">
-              {round.aligned
-                ? `Hear the ${Math.round(settings.lyricLead)} seconds before it, then type the line that comes next.`
-                : "Here's the line before it. Type the one that comes next."}
             </p>
           </section>
 
-          <div className="mt-6 border-t-2 border-ink pt-5">
-            {round.hints.includes("prev") && prev && <p className="border-l-4 border-ink pl-4 text-[22px] font-semibold leading-snug">{prev}</p>}
-            <p className={cx("mt-4 pl-5 text-[20px] leading-snug text-ink-3", !round.hints.includes("prev") && "mt-0")} aria-label="The missing line">
+          <div className="mt-10 text-center text-[26px] leading-snug sm:text-[32px]">
+            {round.hints.includes("prev") && prev && <p className="font-medium text-ink">{prev}</p>}
+            <p className={cx("text-ink-3", round.hints.includes("prev") && prev && "mt-2")} aria-label="The missing line">
               {round.hints.includes("shape") ? (
-                <span className="font-mono tracking-wider">
+                <span className="font-mono text-[0.85em] tracking-wider">
                   {round.hints.includes("first") ? `${answer.split(/\s+/)[0]}  ${lineShape(answer.split(/\s+/).slice(1).join(" "))}` : lineShape(answer)}
                 </span>
               ) : round.hints.includes("first") ? (
                 <span>
-                  <span className="font-semibold text-ink">{answer.split(/\s+/)[0]}</span> …
+                  <span className="font-medium text-ink">{answer.split(/\s+/)[0]}</span> …
                 </span>
               ) : (
                 <span>
-                  … <span className="text-[15px]">({words.length} words)</span>
+                  … <span className="text-[17px]">{words.length} words</span>
                 </span>
               )}
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={() => (playing ? stop() : play(round.clip))}
-            className={cx("mt-6 flex h-14 items-center justify-center gap-2.5 text-[17px] font-bold transition-colors", playing ? "bg-signal text-white" : "bg-ink text-paper hover:bg-black")}
-          >
-            {playing ? <StopGlyph /> : <PlayGlyph />}
-            {playing ? "Playing" : round.aligned ? `Play the ${Math.round(settings.lyricLead)}s before it` : "Play the song"}
-            <Kbd>Space</Kbd>
-          </button>
-          {audioError && <p className="mt-2 text-sm text-error">{audioError}</p>}
-
-          {available.length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-x-5">
-              {available.map((h) => (
-                <Button key={h} variant="text" onClick={() => setRound({ ...round, hints: [...round.hints, h] })} className="text-sm">
-                  {HINT_LABEL[h]} <span className="text-ink-3">−30%</span>
-                  {h === available[0] && <Kbd>H</Kbd>}
-                </Button>
-              ))}
-            </div>
-          )}
-
-          <div className="min-h-6 flex-1" />
-          <p className="mb-2 text-[15px] text-ink-2">
-            Worth up to <span className="font-bold text-ink">{Math.round(settings.maxPoints * multiplier).toLocaleString()}</span>. Close counts: you score for every word you get in order.
-          </p>
           <form
-            className="flex gap-2"
+            className="mt-10 flex items-center gap-4"
             onSubmit={(e) => {
               e.preventDefault();
               if (text.trim()) submit(text.trim());
             }}
           >
+            <button
+              type="button"
+              onClick={() => (playing ? stop() : play(round.clip))}
+              aria-label={playing ? "Stop" : playLabel}
+              title={playing ? "Stop" : playLabel}
+              className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-red text-paper transition-[background-color,transform] hover:bg-[#9e2c2c] active:scale-95 sm:h-16 sm:w-16"
+            >
+              {playing ? (
+                <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor" aria-hidden>
+                  <rect x="5" y="5" width="14" height="14" rx="1.5" />
+                </svg>
+              ) : (
+                <svg viewBox="0 0 24 24" className="ml-1 h-7 w-7" fill="currentColor" aria-hidden>
+                  <path d="M6 3.5v17l15-8.5z" />
+                </svg>
+              )}
+            </button>
             <label htmlFor="lyric-guess" className="sr-only">
               The next line
             </label>
@@ -240,66 +235,96 @@ export function LyricsGame({ source, player, settings, totalRounds, seed, banner
               autoComplete="off"
               spellCheck={false}
               placeholder="Type the next line"
-              className="h-14 w-full min-w-0 flex-1 border-2 border-ink bg-field px-3.5 text-[17px] text-ink outline-none placeholder:text-ink-3 focus:bg-white focus-visible:outline-none"
+              className="h-14 w-full min-w-0 flex-1 rounded-xl border-2 border-ink bg-field px-5 text-[19px] text-ink caret-red outline-none transition-shadow placeholder:text-ink-3 focus:ring-4 focus:ring-blue/20 focus-visible:outline-none sm:h-16 sm:text-[20px]"
             />
-            <button type="submit" disabled={!text.trim()} className="h-14 bg-ink px-5 text-base font-bold text-paper hover:bg-black disabled:opacity-30">
-              Submit
-            </button>
           </form>
-          <div className="mt-1 flex items-center justify-between">
-            <button type="button" onClick={() => setHelp(true)} className="hidden h-11 text-[13px] text-ink-3 underline decoration-rule-strong underline-offset-2 hover:text-ink sm:block">
-              ? all shortcuts
-            </button>
-            <button type="button" onClick={() => submit("")} className="ml-auto inline-flex h-11 items-center gap-2 text-[15px] text-ink-2 hover:text-ink">
-              Give up <Kbd>G</Kbd>
-            </button>
+          {audioError && <p className="mt-3 text-[15px] text-red">{audioError}</p>}
+
+          <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2">
+            {available.map((h) => (
+              <button
+                key={h}
+                type="button"
+                onClick={() => setRound({ ...round, hints: [...round.hints, h] })}
+                className="inline-flex min-h-11 items-center gap-1.5 rounded-full border-[1.5px] border-ink px-4 text-[15px] font-semibold text-ink transition-colors hover:bg-card"
+              >
+                {HINT_LABEL[h]} <span className="font-medium text-ink-3">−30%</span>
+              </button>
+            ))}
+            <Button variant="text" onClick={() => submit("")} className="ml-auto text-[16px] font-medium!">
+              Give up
+            </Button>
           </div>
         </div>
       ) : (
         <LyricReveal round={round} prev={prev} answer={answer} playing={playing} onPlay={() => (playing ? stop() : play(round.aligned ? round.clip + 6 : 15))} onNext={next} isLast={round.index + 1 >= totalRounds} />
       )}
+      </main>
     </div>
   );
 }
 
 function LyricReveal({ round, prev, answer, playing, onPlay, onNext, isLast }: { round: RoundState; prev: string; answer: string; playing: boolean; onPlay: () => void; onNext: () => void; isLast: boolean }) {
   const nextRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => (document.activeElement as HTMLElement | null)?.blur(), []);
+  useEffect(() => nextRef.current?.focus({ preventScroll: true }), []);
+  const t = round.track;
   const sim = round.similarity ?? 0;
+  const points = round.points ?? 0;
+  const title = cleanTitle(t.title);
   const marked = markWords(round.guess ?? "", answer);
+  const verdict = sim >= 0.9 ? "Word for word" : sim >= 0.35 ? `${Math.round(sim * 100)}%` : round.guess ? "Not quite" : "Gave up";
+  const meta = [t.artists.join(", "), t.year ?? (t.decade ? `${t.decade}s` : null)].filter(Boolean).join(" · ");
+  const won = points > 0;
   return (
-    <div className="animate-rise flex flex-1 flex-col">
-      <section className="pt-7" aria-live="polite">
-        <div className="text-[15px] text-ink-2">{sim >= 0.9 ? "Word for word" : sim >= 0.35 ? `${Math.round(sim * 100)}% of the words` : round.guess ? "Not quite" : "Gave up"}</div>
-        <div className={cx("numeral text-[112px] leading-[0.85] sm:text-[128px]", !round.points && "text-ink-3")}>
-          {round.points ? "+" : ""}
-          {(round.points ?? 0).toLocaleString()}
+    <div className="flex flex-1 flex-col justify-center pb-6 pt-4 sm:pb-16 sm:pt-8">
+      <div className="grid items-center justify-items-center gap-5 text-center sm:grid-cols-[minmax(0,300px)_minmax(0,1fr)] sm:justify-items-stretch sm:gap-[64px] sm:text-left">
+        <div className={cx("w-[min(170px,44vw,20dvh)] sm:w-full", won ? "cover-pop" : "cover-drop")}>
+          {t.image ? <img src={t.image} alt="" className="aspect-square w-full rounded-[6px] object-cover shadow-[0_18px_40px_-20px_rgb(30_30_30/0.5)]" /> : <div className="aspect-square w-full rounded-[6px] bg-paper-2" />}
         </div>
-      </section>
-      <div className="mt-6 border-t-2 border-ink pt-5">
-        {prev && <p className="border-l-4 border-rule-strong pl-4 text-[17px] leading-snug text-ink-2">{prev}</p>}
-        <p className="mt-3 border-l-4 border-ink pl-4 text-[22px] leading-snug">
-          {marked.map((w, i) => (
-            <span key={i} className={w.hit ? "font-bold" : "text-ink-2 underline decoration-error decoration-2 underline-offset-4"}>
-              {w.word}{" "}
-            </span>
-          ))}
-        </p>
-        {round.guess && <p className="mt-3 pl-5 text-[15px] text-ink-2">You wrote: {round.guess}</p>}
+        <section className="min-w-0" aria-live="polite">
+          <p className={cx("hand text-[64px] leading-[0.95] sm:text-[112px]", won ? "text-blue" : "text-ink-3")}>
+            <Rolling value={points} from={0} delay={220} duration={750} format={(n) => (n > 0 ? `+${n.toLocaleString()}` : "0")} />
+            <span className="sr-only"> points</span>
+          </p>
+          <p style={{ animationDelay: "100ms" }} className="rise-in text-[15px] font-semibold uppercase tracking-[0.12em] text-ink-3">{verdict}</p>
+          <h2 style={{ animationDelay: "140ms" }} className={cx("rise-in hand mt-1 break-words leading-[1.05]", title.length > 28 ? "text-[28px] sm:text-[42px]" : "text-[34px] sm:text-[52px]")}>{title}</h2>
+          {meta && <p style={{ animationDelay: "180ms" }} className="rise-in mt-1 text-[17px] text-ink-2 sm:text-[20px]">{meta}</p>}
+
+          <div style={{ animationDelay: "240ms" }} className="rise-in mt-5 sm:mt-7">
+            {prev && <p className="text-[16px] leading-snug text-ink-3 sm:text-[18px]">{prev}</p>}
+            <p className="mt-1 text-[21px] leading-snug sm:text-[28px]">
+              {marked.map((w, i) => (
+                <span key={i} className={w.hit ? "font-semibold text-ink" : "text-ink-3 underline decoration-red decoration-2 underline-offset-[6px]"}>
+                  {w.word}{" "}
+                </span>
+              ))}
+            </p>
+            {round.guess && <p className="mt-1.5 text-[15px] text-ink-3">You wrote: {round.guess}</p>}
+          </div>
+
+          <div style={{ animationDelay: "300ms" }} className="rise-in mt-6 flex flex-wrap items-center justify-center gap-3 sm:mt-8 sm:justify-start">
+            <Button
+              ref={nextRef}
+              variant="primary"
+              onClick={onNext}
+              onKeyDown={(e) => {
+                // Space plays the song on this screen, even with Next focused; ignore held-down Enter.
+                if (e.key === " ") {
+                  e.preventDefault();
+                  if (!e.repeat) onPlay();
+                } else if (e.key === "Enter" && e.repeat) e.preventDefault();
+              }}
+              onKeyUp={(e) => e.key === " " && e.preventDefault()}
+            >
+              {isLast ? "See results" : "Next line"}
+            </Button>
+            <Button onClick={onPlay}>
+              {playing ? <StopGlyph /> : <PlayGlyph />}
+              {playing ? "Stop" : round.aligned ? "Hear it" : "Hear the song"}
+            </Button>
+          </div>
+        </section>
       </div>
-      <div className="mt-6">
-        <TrackCard t={round.track} />
-      </div>
-      <div className="min-h-8 flex-1" />
-      <Button onClick={onPlay} className="h-[52px] text-base">
-        {playing ? <StopGlyph /> : <PlayGlyph />}
-        {playing ? "Stop" : round.aligned ? "Hear it" : "Hear the song"}
-        <Kbd>Space</Kbd>
-      </Button>
-      <button ref={nextRef} type="button" onClick={onNext} className="mt-2 flex h-14 items-center justify-between bg-ink px-5 text-[17px] font-bold text-paper hover:bg-black">
-        {isLast ? "See results" : "Next line"}
-        <Kbd>Enter</Kbd>
-      </button>
     </div>
   );
 }
