@@ -8,18 +8,18 @@ export function cx(...c: (string | false | null | undefined)[]) {
 
 type Variant = "primary" | "secondary" | "text" | "danger";
 
-/** Square-cornered keys. One primary per screen. */
+/** Pill buttons. Primary is the red of the Play button; one per screen. */
 export function Button({ variant = "secondary", className, ...rest }: ComponentProps<"button"> & { variant?: Variant }) {
   return (
     <button
       type="button"
       {...rest}
       className={cx(
-        "inline-flex min-h-11 items-center justify-center gap-2 text-[15px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40",
-        variant === "primary" && "bg-ink px-5 text-paper hover:bg-black",
-        variant === "secondary" && "border border-ink px-4 text-ink hover:bg-paper-2",
-        variant === "text" && "px-0 text-ink underline decoration-rule-strong underline-offset-4 hover:decoration-ink",
-        variant === "danger" && "px-0 text-error underline decoration-error/40 underline-offset-4 hover:decoration-error",
+        "inline-flex min-h-11 items-center justify-center gap-2 text-[16px] font-semibold transition-[background-color,transform,box-shadow] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40",
+        variant === "primary" && "min-h-14 rounded-full bg-red px-7 text-[18px] text-paper hover:bg-[#9e2c2c]",
+        variant === "secondary" && "min-h-12 rounded-full border-[1.5px] border-ink px-6 text-ink hover:bg-card",
+        variant === "text" && "px-0 text-ink-2 hover:text-ink",
+        variant === "danger" && "px-0 text-error hover:underline",
         className,
       )}
     />
@@ -34,8 +34,8 @@ export function Chip({ selected, className, ...rest }: ButtonHTMLAttributes<HTML
       aria-pressed={selected}
       {...rest}
       className={cx(
-        "min-h-10 py-2 text-[15px] underline-offset-[6px] transition-colors",
-        selected ? "font-semibold text-ink underline decoration-2 decoration-ink" : "text-ink-2 hover:text-ink",
+        "inline-flex min-h-11 items-center rounded-full border-[1.5px] px-[18px] text-[16px] transition-colors",
+        selected ? "border-ink bg-ink font-semibold text-paper" : "border-rule-strong text-ink hover:border-ink",
         className,
       )}
     />
@@ -44,7 +44,7 @@ export function Chip({ selected, className, ...rest }: ButtonHTMLAttributes<HTML
 
 /** Wraps Chips as a line of text options. */
 export function ChoiceLine({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cx("flex flex-wrap items-center gap-x-5", className)}>{children}</div>;
+  return <div className={cx("flex flex-wrap items-center gap-2.5", className)}>{children}</div>;
 }
 
 export function Toggle({ checked, onChange, label, hint }: { checked: boolean; onChange: (v: boolean) => void; label: ReactNode; hint?: ReactNode }) {
@@ -52,7 +52,7 @@ export function Toggle({ checked, onChange, label, hint }: { checked: boolean; o
     <label className="flex cursor-pointer items-start gap-3.5 py-3">
       <span className="relative mt-0.5 shrink-0">
         <input type="checkbox" className="peer sr-only" checked={checked} onChange={(e) => onChange(e.target.checked)} />
-        <span className="block h-5 w-5 border-[1.5px] border-ink bg-field transition-colors peer-checked:bg-ink peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-signal" />
+        <span className="block h-5 w-5 rounded-[5px] border-[1.5px] border-ink bg-field transition-colors peer-checked:border-blue peer-checked:bg-blue peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ink" />
         <svg viewBox="0 0 20 20" className="pointer-events-none absolute inset-0 h-5 w-5 text-paper opacity-0 peer-checked:opacity-100" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden>
           <path d="M5 10.5l3.2 3L15 6.5" />
         </svg>
@@ -81,8 +81,8 @@ export function Segmented<T extends string>({ value, options, onChange }: { valu
 export function Section({ title, subtitle, children, right }: { title: string; subtitle?: ReactNode; children: ReactNode; right?: ReactNode }) {
   return (
     <section>
-      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b-2 border-ink pb-3">
-        <h2 className="text-[26px] font-bold tracking-tight">{title}</h2>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 pb-3">
+        <h2 className="hand text-[34px] leading-tight">{title}</h2>
         {right ?? (subtitle && <p className="text-sm text-ink-2">{subtitle}</p>)}
       </div>
       {children}
@@ -103,7 +103,7 @@ export function Label({ children, htmlFor }: { children: ReactNode; htmlFor?: st
 
 export function NumberField({ value, onChange, min, max, step, suffix, placeholder, className, id }: { value: number | null; onChange: (v: number | null) => void; min?: number; max?: number; step?: number; suffix?: string; placeholder?: string; className?: string; id?: string }) {
   return (
-    <span className={cx("inline-flex h-11 items-center border border-rule-strong bg-field focus-within:border-ink focus-within:bg-white [&_input]:focus-visible:outline-none", className)}>
+    <span className={cx("inline-flex h-11 items-center rounded-xl border-[1.5px] border-rule-strong bg-field focus-within:border-ink [&_input]:focus-visible:outline-none", className)}>
       <input
         id={id}
         type="number"
@@ -131,7 +131,7 @@ export function TextField(props: React.InputHTMLAttributes<HTMLInputElement>) {
     <input
       {...props}
       className={cx(
-        "h-12 w-full min-w-0 border border-rule-strong bg-field px-3.5 text-base text-ink outline-none placeholder:text-ink-3 focus:border-ink focus:bg-white focus-visible:outline-none",
+        "h-12 w-full min-w-0 rounded-xl border-[1.5px] border-rule-strong bg-field px-4 text-base text-ink outline-none placeholder:text-ink-3 focus:border-ink focus-visible:outline-none",
         props.className,
       )}
     />
@@ -152,13 +152,9 @@ export function Mark({ className }: { className?: string }) {
   );
 }
 
+/** The wordmark, hand-lettered. */
 export function Logo({ className }: { className?: string }) {
-  return (
-    <span className={cx("inline-flex items-center gap-2.5 text-[22px] font-extrabold tracking-tight condensed", className)}>
-      <Mark className="h-[1em] w-[1em]" />
-      <span>Earshot</span>
-    </span>
-  );
+  return <span className={cx("hand inline-block text-[34px] leading-none text-ink", className)}>Earshot</span>;
 }
 
 /** Small key-cap hint, desktop only. */

@@ -1,10 +1,25 @@
 import type { GameSettings } from "./types";
 
-/** Points for solving after `listened` seconds of audio were unlocked: exponential decay from the first step. */
-export function pointsFor(listened: number, s: Pick<GameSettings, "maxPoints" | "halfLife" | "steps">): number {
-  const t0 = s.steps[0] ?? 0.1;
-  const t = Math.max(t0, listened);
-  return Math.round(s.maxPoints * Math.pow(0.5, (t - t0) / Math.max(0.05, s.halfLife)));
+/** Share of the top score that's still worth it at the last stop (the whole clip). */
+export const FLOOR_SHARE = 0.35;
+/** Shape of the drop, fitted to Songless: steep in the first second, then gentle. */
+const CURVE = 1.55;
+
+/**
+ * Points for solving after `listened` seconds of audio were unlocked. Full points at the first
+ * stop, falling to 35% at the last one (1000 at 0.1s, about 600 at 1s, 350 at 16s by default).
+ */
+export function pointsFor(listened: number, s: Pick<GameSettings, "maxPoints" | "steps">): number {
+  const first = s.steps[0] ?? 0.1;
+  const last = Math.max(first, s.steps[s.steps.length - 1] ?? 16);
+  const t = Math.min(last, Math.max(first, listened));
+  const left = last > first ? Math.log(last / t) / Math.log(last / first) : 1;
+  return Math.round(s.maxPoints * (FLOOR_SHARE + (1 - FLOOR_SHARE) * Math.pow(left, CURVE)));
+}
+
+/** What an answer earns after wrong guesses: never below zero. */
+export function netPoints(points: number, penalty: number): number {
+  return Math.max(0, points - penalty);
 }
 
 export function formatSeconds(s: number): string {

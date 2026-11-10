@@ -1,17 +1,21 @@
 import type { Track } from "./types";
-import { artistsOverlap, normArtist, normTitle } from "./text";
+import { artistsOverlap, isOtherVersion, normArtist, normTitle } from "./text";
 
 export interface DzTrack {
   id: number;
   title: string;
   title_short?: string;
+  /** e.g. "(Instrumental)", "(Live)". */
+  title_version?: string;
   duration?: number;
   explicit_lyrics?: boolean;
+  /** Popularity, higher is more popular (up to about 1,000,000). */
+  rank?: number;
   preview?: string;
   release_date?: string;
   artist: { id: number; name: string; picture_medium?: string };
   contributors?: { name: string }[];
-  album?: { id: number; title: string; cover_medium?: string; md5_image?: string; release_date?: string };
+  album?: { id: number; title: string; cover_medium?: string; cover_big?: string; md5_image?: string; release_date?: string };
 }
 
 export interface DzArtist {
@@ -85,11 +89,16 @@ export async function dzSearchTracks(q: string, limit = 10): Promise<DzTrack[]> 
 }
 
 /** Find the Deezer version of a song by title + artist. */
+/** True if a Deezer track is a different version (instrumental, remix, live…) than the title asks for. */
+export function dzIsOtherVersion(t: DzTrack, title: string): boolean {
+  return isOtherVersion(`${t.title} ${t.title_version ?? ""} ${t.album?.title ?? ""}`, title);
+}
+
 export async function dzFindTrack(title: string, artists: string[], durationMs?: number): Promise<DzTrack | null> {
   const plainTitle = title.replace(/\s+[-–—]\s+.*$/, "").replace(/\(.*?\)|\[.*?\]/g, "").trim();
-  const results = await dzSearchTracks(`${artists[0] ?? ""} ${plainTitle}`.trim(), 15);
+  const results = await dzSearchTracks(`${artists[0] ?? ""} ${plainTitle}`.trim(), 25);
   const nt = normTitle(title);
-  const candidates = results.filter((r) => normTitle(r.title) === nt || normTitle(r.title_short ?? "") === nt);
+  const candidates = results.filter((r) => (normTitle(r.title) === nt || normTitle(r.title_short ?? "") === nt) && !dzIsOtherVersion(r, title));
   const withArtist = candidates.filter((r) => artistsOverlap([r.artist.name], artists));
   const pool = withArtist.length ? withArtist : [];
   if (!pool.length) return null;

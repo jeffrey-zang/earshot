@@ -17,13 +17,13 @@ import { PLAYBACK_SCOPES, hasScopes } from "@/lib/spotify/auth";
 import { isIOS } from "@/lib/audio";
 import { Game, type TrackSource } from "./Game";
 import { Results } from "./Results";
-import { Button, Logo, Spinner } from "./ui";
+import { ErrorScreen, LoadingNotes, StatusScreen } from "./StatusScreen";
 
 type Phase =
   | { kind: "loading"; messages: string[] }
   | { kind: "error"; message: string }
-  | { kind: "playing"; source: TrackSource; player: SnippetPlayer; settings: GameSettings; rounds: number; seed: number; notes: string[]; challenge?: Challenge; playlists: string[] }
-  | { kind: "done"; results: RoundResult[]; settings: GameSettings; seed: number; note?: string; challenge?: Challenge };
+  | { kind: "playing"; source: TrackSource; player: SnippetPlayer; settings: GameSettings; rounds: number; seed: number; notes: string[]; challenge?: Challenge; playlists: string[]; category: string }
+  | { kind: "done"; results: RoundResult[]; settings: GameSettings; seed: number; note?: string; challenge?: Challenge; player: SnippetPlayer; category: string };
 
 class FixedSource implements TrackSource {
   private i = 0;
@@ -71,7 +71,7 @@ export function Play() {
         if (!settings.fields?.length) settings.fields = ["title"];
         const rounds = settings.mode === "higherlower" ? tracks.length - 1 : tracks.length;
         const { player } = makePlayer(settings);
-        if (!cancelled) setPhase({ kind: "playing", source: new FixedSource(tracks), player, settings, rounds, seed: challenge.seed, notes: [], challenge, playlists: [] });
+        if (!cancelled) setPhase({ kind: "playing", source: new FixedSource(tracks), player, settings, rounds, seed: challenge.seed, notes: [], challenge, playlists: [], category: "challenge" });
         return;
       }
 
@@ -117,15 +117,7 @@ export function Play() {
       const rounds = settings.rounds || Math.min(500, pool.estimatedSize);
       const { player, note } = makePlayer(settings);
       if (note) notes.push(note);
-      if (settings.mode === "classic" && settings.startMode === "beginning" && !player.fullTrack) {
-        notes.push(
-          note
-            ? "So snippets start at the beginning of a 30s preview clip, which is usually mid-song, not the song's intro."
-            : "Snippets start at the beginning of a 30s preview clip, which is usually mid-song. For the song's real intro, switch Audio to full tracks (Spotify Premium, on a computer).",
-        );
-      }
-      if (settings.mode === "lyrics" && !player.fullTrack) notes.push("Lyrics with previews: you get the line before as a clue. With Spotify Premium full tracks you hear the seconds before the line instead.");
-      if (!cancelled) setPhase({ kind: "playing", source: pool, player, settings, rounds, seed, notes, playlists });
+      if (!cancelled) setPhase({ kind: "playing", source: pool, player, settings, rounds, seed, notes, playlists, category: config.category ?? "custom" });
     })().catch((e: Error) => {
       if (!cancelled) setPhase({ kind: "error", message: e.message });
     });
@@ -134,19 +126,20 @@ export function Play() {
     };
   }, [attempt, log]);
 
+  // The game's player lives on into the results (which play your best song), then is closed.
+  const activePlayer = phase.kind === "playing" || phase.kind === "done" ? phase.player : null;
   useEffect(() => {
-    if (phase.kind !== "playing") return;
-    const p = phase.player;
-    return () => p.dispose();
-  }, [phase]);
+    if (!activePlayer) return;
+    return () => activePlayer.dispose();
+  }, [activePlayer]);
 
   const banner = useMemo(() => {
     if (phase.kind !== "playing") return null;
     const c = phase.challenge;
     if (!c && !phase.notes.length) return null;
     return (
-      <div className="mt-3 space-y-1 border-b border-rule pb-3 text-sm text-ink-2">
-        {c && <p className="font-semibold text-ink">Challenge{c.score != null ? `: beat ${c.score.toLocaleString()} points` : ""}</p>}
+      <div className="mx-auto mt-2 w-full max-w-[760px] space-y-1 text-center text-[14px] leading-snug text-ink-3">
+        {c && <p className="text-[15px] font-semibold text-ink-2">Challenge{c.score != null ? ` · beat ${c.score.toLocaleString()}` : ""}</p>}
         {phase.notes.map((n, i) => (
           <p key={i}>{n}</p>
         ))}
@@ -154,52 +147,21 @@ export function Play() {
     );
   }, [phase]);
 
+  const retry = () => {
+    setPhase({ kind: "loading", messages: [] });
+    setAttempt((a) => a + 1);
+  };
+
   if (phase.kind === "loading") {
     return (
-      <div className="mx-auto flex min-h-dvh max-w-xl flex-col px-5">
-        <header className="flex h-14 items-center">
-          <Logo className="text-lg" />
-        </header>
-        <div className="flex flex-1 flex-col justify-center pb-24">
-          <div className="numeral text-[96px] leading-[0.85] text-ink-3" aria-hidden>
-            0.0<span className="tracking-normal text-[40px]">s</span>
-          </div>
-          <ul className="mt-6 min-h-24 space-y-1 text-[15px] text-ink-2" aria-live="polite">
-            {phase.messages.slice(-3).map((m, i, arr) => (
-              <li key={i} className={i === arr.length - 1 ? "text-ink" : undefined}>
-                {m}
-                {i === arr.length - 1 && <Spinner className="ml-1" />}
-              </li>
-            ))}
-            {phase.messages.length === 0 && (
-              <li className="text-ink">
-                Getting songs ready <Spinner className="ml-1" />
-              </li>
-            )}
-          </ul>
-        </div>
-      </div>
+      <StatusScreen>
+        <LoadingNotes message={phase.messages.at(-1) ?? "Getting songs ready"} />
+      </StatusScreen>
     );
   }
 
   if (phase.kind === "error") {
-    return (
-      <div className="mx-auto flex min-h-dvh max-w-xl flex-col px-5">
-        <header className="flex h-14 items-center">
-          <Logo className="text-lg" />
-        </header>
-        <div className="flex flex-1 flex-col justify-center pb-24">
-          <h1 className="text-3xl font-bold tracking-tight">That didn&apos;t load.</h1>
-          <p className="mt-3 whitespace-pre-line text-ink-2">{phase.message}</p>
-          <div className="mt-6 flex gap-2">
-            <Button variant="primary" onClick={() => { setPhase({ kind: "loading", messages: [] }); setAttempt((a) => a + 1); }}>
-              Try again
-            </Button>
-            <Button onClick={() => router.push("/")}>Change settings</Button>
-          </div>
-        </div>
-      </div>
-    );
+    return <ErrorScreen title="Couldn't start" message={phase.message} primary={{ label: "Try again", run: retry }} secondary={{ label: "Back", run: () => router.push("/") }} />;
   }
 
   if (phase.kind === "done") {
@@ -210,11 +172,10 @@ export function Play() {
         seed={phase.seed}
         note={phase.note}
         challengeScore={phase.challenge?.score}
-        onReplay={() => {
-          setPhase({ kind: "loading", messages: [] });
-          setAttempt((a) => a + 1);
-        }}
+        onReplay={retry}
         onNewGame={() => router.push("/")}
+        player={phase.player}
+        category={phase.category}
       />
     );
   }
@@ -227,7 +188,7 @@ export function Play() {
     seed: phase.seed,
     banner,
     onQuit: () => router.push("/"),
-    onFinish: (results: RoundResult[], note?: string) => setPhase({ kind: "done", results, settings: phase.settings, seed: phase.seed, note, challenge: phase.challenge }),
+    onFinish: (results: RoundResult[], note?: string) => setPhase({ kind: "done", results, settings: phase.settings, seed: phase.seed, note, challenge: phase.challenge, player: phase.player, category: phase.category }),
   };
   if (phase.settings.mode === "lyrics") return <LyricsGame key={attempt} {...common} />;
   if (phase.settings.mode === "higherlower") return <HigherLowerGame key={attempt} {...common} />;
@@ -242,7 +203,7 @@ export function Play() {
       seed={phase.seed}
       banner={banner}
       onQuit={() => router.push("/")}
-      onFinish={(results, note) => setPhase({ kind: "done", results, settings: phase.settings, seed: phase.seed, note, challenge: phase.challenge })}
+      onFinish={(results, note) => setPhase({ kind: "done", results, settings: phase.settings, seed: phase.seed, note, challenge: phase.challenge, player: phase.player, category: phase.category })}
     />
   );
 }

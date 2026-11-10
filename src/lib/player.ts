@@ -3,6 +3,7 @@ import { PreviewEngine, type ActiveTwist } from "./audio";
 import { previewCandidates } from "./resolve";
 import { SpotifyFullTrackPlayer } from "./spotify/player";
 import { searchTrackId } from "./spotify/api";
+import { dlog } from "./dlog";
 
 export interface SnippetPlayer {
   /** Prepare audio for a track (may run ahead of time for the next round). False = no audio found. */
@@ -11,6 +12,8 @@ export interface SnippetPlayer {
   activate(track: Track, rand: () => number): Promise<void>;
   /** Play the first `seconds` of the snippet. */
   play(seconds: number, onEnded: () => void): Promise<void>;
+  /** Lengthen the snippet that's playing to `seconds` without restarting it. False if it can't. */
+  extend?(seconds: number): boolean;
   /** Seconds of the current snippet heard so far, or null if nothing is playing. */
   elapsed(): number | null;
   stop(): void;
@@ -56,11 +59,14 @@ export class PreviewSnippetPlayer implements SnippetPlayer {
       p = (async () => {
         for await (const url of previewCandidates(track)) {
           try {
-            return await this.engine.decode(url);
-          } catch {
-            /* try next source */
+            const b = await this.engine.decode(url);
+            dlog("prepared", { title: track.title.slice(0, 30), host: new URL(url).host, dur: +b.duration.toFixed(1) });
+            return b;
+          } catch (e) {
+            dlog("source failed", { title: track.title.slice(0, 30), host: new URL(url).host, err: String(e).slice(0, 80) });
           }
         }
+        dlog("no audio", { title: track.title.slice(0, 30) });
         return null;
       })();
       this.buffers.set(track.key, p);
@@ -91,6 +97,12 @@ export class PreviewSnippetPlayer implements SnippetPlayer {
       this.twist,
     );
     this.startedAt = t0;
+  }
+
+  extend(seconds: number) {
+    if (this.startedAt == null || !this.engine.extend(seconds, this.twist)) return false;
+    this.length = seconds;
+    return true;
   }
 
   elapsed() {
@@ -126,6 +138,7 @@ export class PreviewSnippetPlayer implements SnippetPlayer {
   dispose() {
     this.stop();
     this.buffers.clear();
+    this.engine.dispose();
   }
 }
 
